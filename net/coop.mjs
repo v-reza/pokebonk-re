@@ -214,8 +214,8 @@ export function buildGuestFrame(state, ev = []) {
 }
 
 /** Host -> guest frame. */
-export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev }) {
-  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev };
+export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd }) {
+  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd };
 }
 
 /** Host -> all start message. */
@@ -422,7 +422,7 @@ export class Coop {
     if (this.host) this.mateGone(u);
     else if (u === this.hostUid) {
       const cb = this.game.lost; this.end();
-      if (cb) cb('Se ha perdido la conexión con el anfitrión.');
+      if (cb) cb('Connection to the host has been lost.');
     }
   }
 
@@ -446,8 +446,11 @@ export class Coop {
     for (const ev of msg.ev || []) {
       switch (ev[0]) {
         case 'h': {
+          // `getEnemy` returns the SLOT NUMBER, and slot 0 is a valid enemy.
+          // A truthiness check (`if (!e)`) silently dropped every hit on slot 0
+          // — the first enemy of every run — so guest kills were never credited.
           const e = this.game.getEnemy ? this.game.getEnemy(ev[1]) : null;
-          if (!e) break;
+          if (e == null) break;
           this.hitFrom = from;
           if (this.game.applyHit) this.game.applyHit(e, ev[2], ev[3], ev[4], ev[5], ev[6]);
           this.hitFrom = null;
@@ -455,7 +458,7 @@ export class Coop {
         }
         case 's': {
           const e = this.game.getEnemy ? this.game.getEnemy(ev[1]) : null;
-          if (!e) break;
+          if (e == null) break;
           if (this.game.applyStatus) this.game.applyStatus(e, ev[2], ev[3]);
           break;
         }
@@ -519,7 +522,7 @@ export class Coop {
     if (this.game.away) this.game.away(this.hostAway || this.stalled ? this.nameOf(this.hostUid) : null);
   }
 
-  nameOf(u) { return u === this.me ? 'Tú' : (this.mates.get(u) || {}).name || '?'; }
+  nameOf(u) { return u === this.me ? 'You' : (this.mates.get(u) || {}).name || '?'; }
 
   // --- hooks called by the game ---
   /** Your attack: others repeat it as a ghost. */

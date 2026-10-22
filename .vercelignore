@@ -1,0 +1,8 @@
+node_modules
+.playwright-mcp
+.git
+tools
+docs
+*.md
+dist
+data

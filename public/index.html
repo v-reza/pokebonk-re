@@ -1,6 +1,17 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
+    <script>
+      try {
+        const p = new URLSearchParams(location.search);
+        const urlLang = p.get('lang');
+        if (urlLang) {
+          localStorage.setItem('pokebonk.lang', urlLang);
+        } else if (!localStorage.getItem('pokebonk.lang')) {
+          localStorage.setItem('pokebonk.lang', 'en');
+        }
+      } catch {}
+    </script>
     <meta name="pokebonk-build" content="mvilprw2">
     <script data-pb-recovery="">// Inlined before the module entry by Vite: it must work even when that entry cannot load.
 (() => {
@@ -129,6 +140,197 @@
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./icons/favicon-96.png" type="image/png" sizes="96x96" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <style id="pb-coop-hud-style">
+      #pb-party-panel {
+        position: absolute;
+        top: calc(140px * var(--hs, 1));
+        left: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 195px;
+        background: rgba(26, 22, 48, 0.88);
+        border: 1.5px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        font-family: var(--font-title, system-ui, sans-serif);
+        pointer-events: auto;
+        z-index: 10;
+        backdrop-filter: blur(4px);
+        transform-origin: 0 0;
+        scale: var(--hs, 1);
+        transition: gap 0.2s ease, padding 0.2s ease, width 0.2s ease;
+      }
+      #pb-party-panel.pb-collapsed {
+        gap: 0;
+        padding: 4px 8px;
+        width: auto;
+        max-width: 175px;
+      }
+      #pb-party-panel.pb-collapsed .pb-party-hpbar {
+        display: none;
+      }
+      .pb-party-row {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        transition: opacity 0.2s ease;
+      }
+      .pb-party-row.dead {
+        opacity: 0.7;
+      }
+      .pb-party-row-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        line-height: 1.1;
+      }
+      .pb-party-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        box-shadow: 0 0 4px currentColor;
+      }
+      .pb-conn-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #888;
+        border: 1px solid rgba(0, 0, 0, 0.6);
+        cursor: help;
+      }
+      .pb-conn-dot.pb-conn-direct { background: #3ddc84; }
+      .pb-conn-dot.pb-conn-relay { background: #ffcb3d; }
+      .pb-conn-dot.pb-conn-connecting { background: #9aa0a6; }
+      .pb-conn-dot.pb-conn-failed,
+      .pb-conn-dot.pb-conn-closed { background: #ff4a5a; }
+      .pb-party-name {
+        color: #fff;
+        font-size: 11px;
+        font-weight: 800;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pb-party-lvl {
+        color: #ffd23a;
+        font-size: 10px;
+        font-weight: 800;
+        flex-shrink: 0;
+      }
+      .pb-party-status {
+        font-size: 8px;
+        font-weight: 900;
+        padding: 1px 4px;
+        border-radius: 3px;
+        color: #fff;
+        background: #e94756;
+        flex-shrink: 0;
+        display: none;
+      }
+      .pb-party-status.reviving {
+        background: #f8b420;
+        animation: pbPulse 0.6s infinite alternate;
+      }
+      @keyframes pbPulse {
+        to { filter: brightness(1.4); }
+      }
+      .pb-party-hpbar {
+        height: 12px;
+        background: #2e2842;
+        border-radius: 999px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+      }
+      .pb-party-hp-fill {
+        position: absolute;
+        inset: 0;
+        transform-origin: 0;
+        border-radius: 999px;
+        background: linear-gradient(#7af0a0, #2ac860);
+        transition: transform 0.1s ease-out;
+      }
+      .pb-party-hpbar.mid .pb-party-hp-fill {
+        background: linear-gradient(#ffe07a, #f8b420);
+      }
+      .pb-party-hpbar.low .pb-party-hp-fill {
+        background: linear-gradient(#ff8a8a, #ec3040);
+        animation: pbPulse 0.5s infinite alternate;
+      }
+      .pb-party-hpbar.dead .pb-party-hp-fill {
+        background: #444;
+      }
+      .pb-party-hp-text {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      }
+      .pb-name-tag {
+        position: fixed;
+        pointer-events: none;
+        transform: translate(-50%, -100%);
+        padding: 2px 8px;
+        border-radius: 999px;
+        font: 800 11px system-ui, sans-serif;
+        color: #fff;
+        background: rgba(26, 22, 48, 0.85);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+        white-space: nowrap;
+        z-index: 9;
+      }
+      #pb-dc-banner {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%) scale(var(--hs, 1));
+        transform-origin: 50% 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background: linear-gradient(90deg, rgba(160, 24, 38, 0.92), rgba(100, 18, 30, 0.92));
+        border: 1.5px solid rgba(255, 120, 130, 0.6);
+        border-radius: 24px;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-family: var(--font-title, system-ui, sans-serif);
+        font-size: 13px;
+        font-weight: 800;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        pointer-events: auto;
+        backdrop-filter: blur(6px);
+      }
+      #pb-dc-banner .pb-dc-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: #fff;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+      }
+      #pb-dc-banner .pb-dc-close:hover {
+        background: rgba(255, 255, 255, 0.4);
+      }
+    </style>
     <script type="importmap">
       { "imports": { "net": "/net/net.mjs", "coop": "/net/coop.mjs", "signaling": "/net/signaling-local.mjs", "signaling-fb": "/net/signaling-firebase.mjs", "fbcfg": "/firebase/firebase-config.js" } }
     </script>
@@ -151,6 +353,10 @@
         set(v) {
           this._run = v;
           if (v && this.pendingCoop) beginCoop(this.pendingCoop);
+          if (!v) {
+            const p = document.getElementById('pb-party-panel');
+            if (p) p.style.display = 'none';
+          }
         }
       });
 
@@ -158,7 +364,8 @@
       // SSE relay (net/signaling-local.mjs) instead of Firebase. Defaults to Firebase.
       if (globalThis.__pbUseLocal !== true) {
         const qs = new URL(location.href).searchParams;
-        globalThis.__pbUseLocal = qs.has('local') || qs.get('coop') === 'local';
+        const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        globalThis.__pbUseLocal = isLocalHost && (qs.has('local') || qs.get('coop') === 'local');
       }
 
       globalThis.__pb = R;
@@ -201,7 +408,7 @@
           walking: (pl.speedNow || 0) > 0.1 ? 1 : 0,
           hp: pl.hp, maxHp: pl.maxHp, dead: pl.dead ? 1 : 0, level: pl.level || 1,
           aim: a, xpMul: pl.bonusDamageMult ? pl.bonusDamageMult() : 1,
-          reviveT: 0, choosing: 0, doneSeq: 0, watching: ''
+          reviveT: pl.reviveT || 0, choosing: 0, doneSeq: 0, watching: ''
         };
       }
 
@@ -224,46 +431,67 @@
             const r = runOf(); if (!r) return [];
             return serializeEnemyFrame(collectEnemySlots(r.enemies, r.player.pos.x, r.player.pos.z));
           },
-          // guest: remote enemy lifecycle ('ne' / 'ed' / 'eg' / 'f' rows)
+          // guest: remote enemy lifecycle ('ne' / 'ed' / 'eg' / 'f' rows).
+          // The host's slot index and the guest's local slot index are NOT the
+          // same: `sd.spawn()` pops from the guest's own free list. The wire
+          // protocol (and every 'h' hit the guest sends back) speaks HOST slot
+          // ids, so `hostSlot[localSlot]` is the mapping used on both sides.
           addRemoteEnemy(ev) {
             const r = runOf(); if (!r) return;
             const sd = r.enemies;
+            const hostSlot = ev[1];
             const slot = sd.spawn(ev[2], ev[3], ev[4], 1, 1, ev[9] || 0);
             if (slot < 0) return;
             sd.remote[slot] = 1;
+            (sd.hostSlot ||= new Int32Array(sd.remote.length))[slot] = hostSlot;
             sd.maxHp[slot] = sd.hp[slot] = ev[7] || 1;
             const b = slot * 4;
             sd.net[b] = ev[3]; sd.net[b + 1] = ev[4]; sd.net[b + 2] = ev[7] || 1; sd.net[b + 3] = 0;
           },
           applyRemoteEnemy(a) {
             const r = runOf(); if (!r) return;
-            const sd = r.enemies, slot = a[0];
-            if (!sd.alive[slot]) return;
-            const b = slot * 4;
+            const sd = r.enemies;
+            // a[0] is a HOST slot; translate to the guest's local row.
+            const local = r.coop ? r.coop.localSlotOf(a[0]) : a[0];
+            if (local == null || !sd.alive[local]) return;
+            const b = local * 4;
             sd.net[b] = a[1]; sd.net[b + 1] = a[2]; sd.net[b + 2] = a[3]; sd.net[b + 3] = (typeof performance !== 'undefined' ? performance.now() : Date.now());
             const anim = a[4], dir = a[5];
-            sd.atkAnim[slot] = anim === 1 ? 0.2 : 0;
-            sd.dying[slot] = anim === 3 ? 0.1 : 0;
-            sd.frozen[slot] = anim === 2 ? 1 : 0;
-            sd.sleep[slot] = 0;
+            sd.atkAnim[local] = anim === 1 ? 0.2 : 0;
+            sd.dying[local] = anim === 3 ? 0.1 : 0;
+            sd.frozen[local] = anim === 2 ? 1 : 0;
+            sd.sleep[local] = 0;
             const f = dirToFace(dir || 0);
-            sd.fx[slot] = f.x; sd.fz[slot] = f.z;
-            if (a[6] & 1) sd.burn[slot] = Math.max(sd.burn[slot], 0.1);
-            if (a[6] & 2) sd.poison[slot] = Math.max(sd.poison[slot], 0.1);
+            sd.fx[local] = f.x; sd.fz[local] = f.z;
+            if (a[6] & 1) sd.burn[local] = Math.max(sd.burn[local], 0.1);
+            if (a[6] & 2) sd.poison[local] = Math.max(sd.poison[local], 0.1);
           },
-          removeRemoteEnemy(slot) { const r = runOf(); if (r && r.enemies.remote[slot]) r.enemies.kill(slot); },
+          removeRemoteEnemy(hostSlot) {
+            const r = runOf(); if (!r) return;
+            const local = r.coop ? r.coop.localSlotOf(hostSlot) : hostSlot;
+            if (local != null && r.enemies.remote[local]) r.enemies.kill(local);
+          },
           // guest: damage-number popup on a remote enemy ('hn' event)
-          showRemoteHurt(slot, dmg, color) {
+          showRemoteHurt(hostSlot, dmg, color) {
             const r = runOf(); if (!r) return;
             const sd = r.enemies;
-            if (!sd || !sd.alive || !sd.alive[slot]) return;
-            // vfx.number(x, y, z, value, color[, crit]) — main.pretty.js:7191
+            const slot = r.coop ? r.coop.localSlotOf(hostSlot) : hostSlot;
+            if (slot == null || !sd || !sd.alive || !sd.alive[slot]) return;
             r.vfx.number(sd.x[slot], sd.y[slot] + sd.hgt[slot] + 0.3, sd.z[slot], dmg, color || 16777215);
           },
           // host: apply a guest's forwarded hit
           getEnemy(slot) { const r = runOf(); return r && r.enemies.isAlive(slot) ? slot : null; },
+          // host: apply a guest's forwarded hit.
+          // `silent: true` is REQUIRED: without it the host runs the local
+          // damage-number/audio block, which needs a move definition for
+          // `n.slot` that a forwarded hit does not have, throws, and skips the
+          // `i.hp[e] <= 0 && this.killEnemy(e, n)` tail — damage lands but the
+          // enemy never dies (observed: host hp 30 -> 8.6, kills stayed 0).
           applyHit(slot, dmg, color, dx, dy, knock) {
-            const r = runOf(); if (r) r.combat.hit(slot, dmg, { fixed: true, dirX: dx, dirZ: dy });
+            const r = runOf(); if (!r) return;
+            r.combat.hit(slot, dmg, {
+              fixed: true, silent: true, dirX: dx, dirZ: dy, knock: knock || 1.5,
+            });
           },
           applyStatus(slot, kind, val) { const r = runOf(); if (r && r.combat.applyStatus) r.combat.applyStatus(slot, kind, val); },
           ghostCast() { /* TODO(no game API): no hook to render a teammate's ghost cast. */ },
@@ -281,13 +509,17 @@
             if (s.coins != null) r.gold = s.coins;
           },
           levelStart(lv) {
-            // Host: doLevelUp() already opens the card natively and the bundle hook
-            // `this.coop.levelStart(...)` broadcasts the 'lu' event — nothing to add.
-            // Guest: the card-choice callback in the bundle never calls
-            // coop.localPicked() (not wired), so opening the guest card here would
-            // deadlock the host's `waiting` set. Best-effort toast only.
+            // Host: doLevelUp() already opens the card natively and the bundle
+            // hook broadcasts the 'lu' event. Guest: the bundle's own level-up
+            // path is inert (gainLevel/addXp early-return), so the card is opened
+            // here, on the host's 'lu'. The guest's card closes on the host's
+            // 'lr' (adapter `resume`), and picking calls coop.localPicked() from
+            // the patched DC.doLevelUp helper.
             const r = runOf();
-            if (r && r.coop && !r.coop.isHost && r.ui) r.ui.toast(`Level ${lv} — waiting for the host…`, null);
+            if (!r || !r.coop || r.coop.isHost) return;
+            if (r.state === 'over' || r.state === 'modal') return;
+            r.pendingLevels = Math.max(1, r.pendingLevels | 0);
+            try { r.doLevelUp(); } catch (e) { console.warn('[coop] level card', e); }
           },
           resume() {
             const r = runOf();
@@ -296,7 +528,7 @@
           waiting(names) {
             const r = runOf();
             if (!r || !r.ui) return;
-            const others = (names || []).filter(n => n !== 'Tú' && n !== (r.player && r.player.uid));
+            const others = (names || []).filter(n => n !== 'You' && n !== 'Tú' && n !== (r.player && r.player.uid));
             const k = others.join(',');
             if (k === (R._waitKey || null)) return;   // debounce sendWaiting() repeats
             R._waitKey = k;
@@ -308,19 +540,45 @@
             r.endHow = d && d.why ? d.why : 'lose';
             try { r.finish((d && d.why) === 'win'); } catch (e) { console.warn('[coop] over', e); }
           },
-          lost(msg) { console.warn('[coop]', msg); },
+          lost(msg) {
+            console.warn('[coop]', msg);
+            showDcBanner('host');
+          },
           say(text, secs) { const r = runOf(); if (r && r.ui) r.ui.toast(text, null); },
           shiny(dex) { const r = runOf(); if (r && r.ui) r.ui.toast('A shiny appeared!', 'shiny-stone'); },
           away(name) { if (name) console.warn('[coop] host away/stalled:', name); },
-          mateLeft(m) { const r = runOf(); if (r && r.ui && m) r.ui.toast(`${m.name || 'A player'} left`, null); },
+          mateLeft(m) {
+            const r = runOf();
+            if (m && m.name) showDcBanner(m.name);
+            if (r && r.ui && m) r.ui.toast(`${m.name || 'A player'} left`, null);
+          },
           item(id) { /* TODO(no game API): no hook to give a guest a pickup by id. */ },
           pullAll() { const r = runOf(); if (r && r.pickups) r.pickups.magnetAll = 4; },
-          inLevelUp() { const r = runOf(); return !!r && r.state === 'modal'; },
+          // `Coop.onHostFrame` closes the local card whenever a frame arrives with
+          // no `lu` field. On the guest that is EVERY frame (the card is opened by
+          // the 'lu' event, not by a frame field), so reporting `modal` here made
+          // the guest's card vanish one frame after it opened — unusable. The
+          // guest's card is closed by the host's explicit 'lr' (adapter.resume),
+          // so `inLevelUp()` must be false for guests.
+          inLevelUp() {
+            const r = runOf();
+            if (!r) return false;
+            if (r.coop && !r.coop.isHost) return false;   // guest: closed only by 'lr'
+            return r.state === 'modal';
+          },
           choosing() { const r = runOf(); return r && r.state === 'modal' ? 1 : 0; },
           watching() { return ''; },
           startCoop(msg) {
             const r = runOf();
-            if (r && msg && msg.seed != null) { r.seed = msg.seed; try { r.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); } }
+            if (!r || !msg || msg.seed == null) return;
+            // Only reseed when the host's seed actually differs: `start` is
+            // broadcast once, but it also reaches the net layer used by
+            // __pbStartCoop, so an unconditional rebuild would run twice and
+            // replace the player object after coop.local was already re-pointed.
+            if (r.seed === msg.seed) return;
+            r.seed = msg.seed;
+            try { r.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); }
+            buildPuppets(r);
           }
         };
       }
@@ -356,14 +614,464 @@
           run.seed = R.remoteSeed;
           try { run.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); }
         }
-        if (globalThis.__pbMakePuppets) {
-          for (const p of globalThis.__pbMakePuppets(run, members, cfg.uid)) {
-            const m = coop.mates.get(p.uid);
-            if (m) m.pl = p;
-          }
-        }
+        // Teammate puppets. `Coop.begin()` only leaves placeholder stubs in
+        // `mates[*].pl` (no pos/render/net), so they must be replaced by real
+        // `Yg` puppets before the first frame. `__pbBuildPuppets` is also called
+        // from the patched `DC.buildStage`, so a reseed rebuilds them.
+        buildPuppets(run);
         // Re-publish the refreshed member list to the room (fire-and-forget).
         if (globalThis.__pbPublishMembers) globalThis.__pbPublishMembers(members);
+      }
+
+      /**
+       * Replace every connected mate's placeholder with a real `Yg` puppet and
+       * point `mate.pl` at it — that object is what `DC.renderCoopPlayers` draws
+       * and what `Coop` writes the wire state into (`pl.net`). Idempotent: an
+       * existing puppet for the same uid is reused, never duplicated.
+       *
+       * Also re-points `coop.local` at `run.player`: `DC.buildStage(true)` builds
+       * a brand-new `Yg` (the guest reseeds from the host's seed that way), so a
+       * `local` captured by `coop.begin()` would keep streaming the old object's
+       * frozen position — the teammate would sit at the spawn point forever.
+       */
+      function buildPuppets(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active || typeof globalThis.__pbMakePuppets !== 'function') return [];
+        if (run.player && coop.local !== run.player) coop.local = run.player;
+        const mates = coop.matesList || [];
+        const members = mates.map(m => ({ uid: m.uid, name: m.name, dex: m.dex || 0, shiny: !!m.shiny }));
+        let made = [];
+        try {
+          made = globalThis.__pbMakePuppets(run, members, coop.me) || [];
+        } catch (e) {
+          // A bad species in one member must not cost everyone else a puppet.
+          console.warn('[coop] puppet factory', e);
+          for (const m of members) {
+            try {
+              const one = globalThis.__pbMakePuppets(run, [m], coop.me);
+              if (one && one[0]) made.push(one[0]);
+            } catch { /* that member stays a stub this run */ }
+          }
+        }
+        const byUid = new Map(made.map(p => [p.uid, p]));
+        for (const m of mates) {
+          if (!m.connected) continue;
+          const p = byUid.get(m.uid) || m.pl;
+          if (!p || typeof p.render !== 'function') continue;
+          p.net ||= m.pl && m.pl.net;                 // seed the wire state
+          p.tag ||= m.name;
+          p.tagColor ||= m.color;
+          m.pl = p;
+          coop.mates.set(m.uid, m);
+        }
+        run.coopPuppets = [...coop.mates.values()].map(m => m.pl);
+        return run.coopPuppets;
+      }
+      globalThis.__pbBuildPuppets = buildPuppets;
+
+      let partyPanelEl = null;
+      let dcBannerEl = null;
+      const partyRows = new Map();
+
+      function showDcBanner(name) {
+        const run = R.run;
+        if (!run || !run.coop || !run.coop.active) return;
+        if (!dcBannerEl || !dcBannerEl.isConnected) {
+          dcBannerEl = document.createElement('div');
+          dcBannerEl.id = 'pb-dc-banner';
+          const text = document.createElement('span');
+          text.className = 'pb-dc-text';
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'pb-dc-close';
+          closeBtn.textContent = '✕';
+          closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            hideDcBanner();
+          };
+          dcBannerEl.append(text, closeBtn);
+          const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
+          parent.append(dcBannerEl);
+        }
+        const targetName = name || 'peer';
+        dcBannerEl.querySelector('.pb-dc-text').textContent = `Lost connection to ${targetName} — reconnecting…`;
+        dcBannerEl.style.display = '';
+      }
+      globalThis.__pbShowDcBanner = showDcBanner;
+
+      function hideDcBanner() {
+        if (dcBannerEl) dcBannerEl.style.display = 'none';
+      }
+      globalThis.__pbHideDcBanner = hideDcBanner;
+
+      function updatePartyHud(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) {
+          if (partyPanelEl) partyPanelEl.style.display = 'none';
+          hideDcBanner();
+          return;
+        }
+        if (!partyPanelEl || !partyPanelEl.isConnected) {
+          partyPanelEl = document.getElementById('pb-party-panel');
+          if (!partyPanelEl) {
+            partyPanelEl = document.createElement('div');
+            partyPanelEl.id = 'pb-party-panel';
+            const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
+            parent.append(partyPanelEl);
+          }
+        }
+        partyPanelEl.style.display = '';
+
+        const activeUids = new Set();
+        const netMod = globalThis.__pbNet;
+
+        // 1. Local player row (real player object)
+        const meUid = coop.me;
+        activeUids.add(meUid);
+        const p = run.player;
+        const meMember = coop.members && coop.members.find(m => m.uid === meUid);
+        const meName = (meMember && meMember.name) || (p && p.data && p.data.name) || (p && p.name) || 'You';
+        const meColor = (meMember && meMember.color) || (p && p.tagColor) || '#ffcb3d';
+        const meHp = p ? Math.max(0, p.hp) : 0;
+        const meMaxHp = p ? Math.max(1, p.maxHp) : 1;
+        const meLvl = p ? (p.level || 1) : 1;
+        const meDead = !!(p && (p.dead || p.hp <= 0));
+        updatePartyRow(meUid, meName, meColor, meHp, meMaxHp, meLvl, meDead, 0, 'direct');
+
+        // 2. Connected teammates rows (wire state from pl.net)
+        let hasConnectedMate = false;
+        for (const m of coop.mates.values()) {
+          if (!m.connected) {
+            if (m.pl && m.pl._tagEl) m.pl._tagEl.style.display = 'none';
+            continue;
+          }
+          hasConnectedMate = true;
+          activeUids.add(m.uid);
+          const pl = m.pl;
+          const net = (pl && pl.net) || m.state || {};
+          const name = m.name || (pl && (pl.tag || pl.name)) || 'Teammate';
+          const color = m.color || (pl && pl.tagColor) || '#5fc8ff';
+          const hp = net.hp != null ? Math.max(0, net.hp) : (pl ? Math.max(0, pl.hp) : 0);
+          const maxHp = net.maxHp != null ? Math.max(1, net.maxHp) : (pl ? Math.max(1, pl.maxHp) : 1);
+          const lvl = net.level != null ? net.level : (pl ? (pl.level || 1) : 1);
+          const dead = !!(net.dead || (pl && pl.dead) || hp <= 0);
+          const reviveT = Number(net.reviveT != null ? net.reviveT : (pl ? pl.reviveT : 0) || 0);
+          const connMode = netMod && typeof netMod.mode === 'function' ? netMod.mode(m.uid) : 'direct';
+          updatePartyRow(m.uid, name, color, hp, maxHp, lvl, dead, reviveT, connMode);
+        }
+
+        // Only dismiss if the mate's connection is direct or relay
+        if (hasConnectedMate && dcBannerEl && dcBannerEl.style.display !== 'none') {
+          const anyLost = Array.from(coop.mates.values()).some(m => !m.connected || (netMod && ['failed', 'closed'].includes(netMod.mode(m.uid))));
+          if (!anyLost) hideDcBanner();
+        }
+        // Collapse panel to a single slim line if party has only 1 active member
+        const isSingleMember = activeUids.size <= 1;
+        partyPanelEl.classList.toggle('pb-collapsed', isSingleMember);
+
+        // 3. Remove departed rows
+        for (const [uid, r] of partyRows.entries()) {
+          if (!activeUids.has(uid)) {
+            r.el.remove();
+            partyRows.delete(uid);
+          }
+        }
+      }
+
+      function updatePartyRow(uid, name, color, hp, maxHp, lvl, dead, reviveT, connMode) {
+        let r = partyRows.get(uid);
+        if (!r) {
+          const el = document.createElement('div');
+          el.className = 'pb-party-row';
+
+          const head = document.createElement('div');
+          head.className = 'pb-party-row-head';
+
+          const dot = document.createElement('span');
+          dot.className = 'pb-party-dot';
+
+          const connDot = document.createElement('span');
+          connDot.className = 'pb-conn-dot';
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'pb-party-name';
+
+          const lvlEl = document.createElement('span');
+          lvlEl.className = 'pb-party-lvl';
+
+          const statusEl = document.createElement('span');
+          statusEl.className = 'pb-party-status';
+
+          head.append(dot, connDot, nameEl, lvlEl, statusEl);
+
+          const bar = document.createElement('div');
+          bar.className = 'pb-party-hpbar bar hpbar';
+
+          const fill = document.createElement('i');
+          fill.className = 'pb-party-hp-fill';
+
+          const text = document.createElement('b');
+          text.className = 'pb-party-hp-text';
+
+          bar.append(fill, text);
+          el.append(head, bar);
+          partyPanelEl.append(el);
+
+          r = {
+            el, dot, connDot, name: nameEl, lvl: lvlEl, status: statusEl, bar, fill, text,
+            lastPct: -1, lastHpStr: '', lastLvl: '', lastStatus: null, lastColorClass: '', lastMode: ''
+          };
+          partyRows.set(uid, r);
+        }
+
+        if (r.name.textContent !== name) r.name.textContent = name;
+        if (r.dot.style.color !== color) {
+          r.dot.style.color = color;
+          r.dot.style.backgroundColor = color;
+        }
+
+        const mode = connMode || 'direct';
+        if (r.lastMode !== mode) {
+          r.connDot.className = `pb-conn-dot pb-conn-${mode}`;
+          r.connDot.title = `Connection: ${mode}`;
+          r.lastMode = mode;
+        }
+
+        const lvlStr = `Lv.${lvl}`;
+        if (r.lastLvl !== lvlStr) {
+          r.lvl.textContent = lvlStr;
+          r.lastLvl = lvlStr;
+        }
+
+        const pct = Math.max(0, Math.min(1, hp / maxHp));
+        if (r.lastPct !== pct) {
+          r.fill.style.transform = `scaleX(${pct})`;
+          r.lastPct = pct;
+        }
+
+        const hpStr = dead ? (reviveT > 0 ? `REVIVE IN ${Math.ceil(reviveT)}s` : 'DEAD') : `${Math.ceil(hp)} / ${Math.ceil(maxHp)}`;
+        if (r.lastHpStr !== hpStr) {
+          r.text.textContent = hpStr;
+          r.lastHpStr = hpStr;
+        }
+
+        const colorClass = dead ? 'dead' : pct < 0.25 ? 'low' : pct < 0.5 ? 'mid' : 'good';
+        if (r.lastColorClass !== colorClass) {
+          r.bar.className = `pb-party-hpbar bar hpbar ${colorClass}`;
+          r.el.classList.toggle('dead', dead);
+          r.lastColorClass = colorClass;
+        }
+
+        let status = '';
+        let isReviving = false;
+        if (dead) {
+          if (reviveT > 0) {
+            status = `DEAD · ${Math.ceil(reviveT)}s`;
+            isReviving = true;
+          } else {
+            status = 'DEAD';
+          }
+        }
+        if (r.lastStatus !== status) {
+          r.status.textContent = status;
+          r.status.style.display = status ? '' : 'none';
+          r.status.className = `pb-party-status${isReviving ? ' reviving' : ''}`;
+          r.lastStatus = status;
+        }
+      }
+
+      /**
+       * Per-frame puppet sync, called from the patched `DC.update` before
+       * `renderWorld`. Copies the latest wire state onto the puppet object so its
+       * world position is a pure function of the most recent host/guest frame —
+       * no interpolation clock, no dependence on how often the render pass runs.
+       * Cheap: one mate per teammate, a handful of scalar writes.
+       */
+      function syncPuppets(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) {
+          if (partyPanelEl) partyPanelEl.style.display = 'none';
+          return;
+        }
+        for (const m of coop.mates.values()) {
+          const pl = m.pl, net = pl && pl.net;
+          if (!net || !pl.pos || !pl.facing) continue;
+          // `pos` is the TRUE wire position. Any visual separation is applied
+          // at draw time by __pbDrawOffset (see server.mjs patch A8), never here:
+          // mutating pos would corrupt interpolation and the net round-trip.
+          pl.pos.x = net.x;
+          pl.pos.z = net.y;
+          pl.pos.y = run.terrain ? run.terrain.height(net.x, net.y) : pl.pos.y;
+          pl.facing.x = Math.sin(net.angle);
+          pl.facing.y = Math.cos(net.angle);
+          pl.speedNow = net.walking ? 3 : 0;
+          if (net.maxHp != null) pl.maxHp = net.maxHp;
+          if (net.hp != null) pl.hp = net.hp;
+          pl.dead = !!net.dead;
+          if (net.level != null) pl.level = net.level;
+          if (net.reviveT != null) pl.reviveT = net.reviveT;
+        }
+        updatePartyHud(run);
+      }
+      globalThis.__pbSyncPuppets = syncPuppets;
+
+      /**
+       * Floating name tag for remote puppets, positioned at draw time.
+       */
+      function updateFloatingTag(pl, dx, dz) {
+        const run = pl && pl.run;
+        if (!run || !run.coop || !run.coop.active || !pl.remote) {
+          if (pl && pl._tagEl) pl._tagEl.style.display = 'none';
+          return;
+        }
+        let tag = pl._tagEl;
+        if (!tag) {
+          tag = document.createElement('div');
+          tag.className = 'pb-name-tag';
+          const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
+          parent.append(tag);
+          pl._tagEl = tag;
+        }
+        const wx = pl.pos.x + dx;
+        const wy = (pl.pos.y || 0) + 1.8;
+        const wz = pl.pos.z + dz;
+        const proj = run.ui && typeof run.ui.project === 'function' ? run.ui.project(run, wx, wy, wz) : null;
+        if (!proj || !proj.vis) {
+          tag.style.display = 'none';
+          return;
+        }
+        tag.style.left = `${proj.x}px`;
+        tag.style.top = `${proj.y}px`;
+        tag.style.display = '';
+        const color = pl.tagColor || '#5fc8ff';
+        tag.style.border = `1.5px solid ${color}`;
+        const isDead = !!(pl.dead || (pl.net && pl.net.dead) || (pl.hp != null && pl.hp <= 0));
+        const name = pl.tag || pl.name || 'Teammate';
+        const text = isDead ? `💀 ${name}` : name;
+        if (tag._text !== text) {
+          tag.textContent = text;
+          tag._text = text;
+        }
+      }
+
+      /**
+       * Draw-time-only sprite offset for a remote puppet, so two players who
+       * stand on the same spot do not render as one Pokémon. Stable per uid
+       * (same direction and radius for the whole session), and strictly a
+       * rendering concern: `pl.pos` keeps the true wire position.
+       * Returns [dx, dz] or null for the local player.
+       */
+      function drawOffset(pl) {
+        if (!pl || !pl.remote) return null;
+        if (!pl._drawOff) {
+          let h = 0;
+          const key = String(pl.uid || pl.tag || 'mate');
+          for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+          // Spread teammates on a ring: deterministic angle + radius per uid.
+          const ang = (Math.abs(h) % 360) * Math.PI / 180;
+          const r = 1.6 + (Math.abs(h >> 8) % 3) * 0.3;   // 1.6 .. 2.2 world units
+          pl._drawOff = [Math.cos(ang) * r, Math.sin(ang) * r];
+        }
+        updateFloatingTag(pl, pl._drawOff[0], pl._drawOff[1]);
+        return pl._drawOff;
+      }
+      globalThis.__pbDrawOffset = drawOffset;
+
+      /**
+       * Minimap party indicators (Task 1).
+       * Called from the patched `drawMinimap(e)` right before canvas restore.
+       * Reuses the minimap's world-to-canvas projection `proj(x, z)` and
+       * circle rim clamping `clamp(x, y, true)`.
+       */
+      function drawMinimap(run, ctx, proj, clamp, scale) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active || !coop.mates) return;
+        for (const m of coop.mates.values()) {
+          if (!m.connected || !m.pl || m.uid === coop.me) continue;
+          const pl = m.pl;
+          const wx = pl.pos ? pl.pos.x : (pl.net ? pl.net.x : 0);
+          const wz = pl.pos ? pl.pos.z : (pl.net ? pl.net.y : 0);
+          const pt = proj(wx, wz);
+          const c = clamp(pt[0], pt[1], true);
+          if (!c) continue;
+          const [x, y] = c;
+          const color = m.color || '#ffcb3d';
+          const isDead = !!(pl.dead || (pl.net && pl.net.dead) || (pl.hp != null && pl.hp <= 0));
+          if (isDead) {
+            // Downed / dead teammate: hollow, pulsing ring with an X mark
+            const pulse = (6 + 2.5 * Math.sin(performance.now() * 0.008)) * scale;
+            ctx.save();
+            ctx.strokeStyle = '#1d1236';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(x, y, pulse, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, pulse, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const s = 3.5 * scale;
+            ctx.strokeStyle = '#ff4a5a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s);
+            ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s);
+            ctx.stroke();
+            ctx.restore();
+          } else {
+            // Alive teammate: solid dot with contrasting outline and center highlight
+            const r = 6.5 * scale;
+            ctx.save();
+            ctx.fillStyle = color;
+            ctx.strokeStyle = '#1d1236';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x, y, 2 * scale, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      }
+      globalThis.__pbDrawMinimap = drawMinimap;
+
+      /**
+       * Guest slot mapping. The guest's `Sd` allocates its own local slots for
+       * the host's enemies, while the wire (and the 'h' hits the guest sends
+       * back) speaks HOST slot ids. `sd.hostSlot[local] = host` is written when
+       * the row is created; this is the inverse lookup, memoised per run.
+       */
+      function localSlotOf(hostSlot) {
+        const run = R.run;
+        const sd = run && run.enemies;
+        if (!sd || !sd.hostSlot) return null;
+        const memo = sd.__hostToLocal || (sd.__hostToLocal = new Map());
+        const cached = memo.get(hostSlot);
+        if (cached != null && sd.alive[cached] && sd.remote[cached]) return cached;
+        for (let i = 0; i < sd.n; i++) {
+          if (sd.alive[i] && sd.remote[i] && sd.hostSlot[i] === hostSlot) {
+            memo.set(hostSlot, i);
+            return i;
+          }
+        }
+        memo.delete(hostSlot);
+        return null;
+      }
+      globalThis.__pbLocalSlotOf = localSlotOf;
+
+      /** Host slot id for a local row (identity on the host). */
+      function hostSlotOf(localSlot) {
+        const run = R.run;
+        const sd = run && run.enemies;
+        if (!sd || !sd.remote || !sd.remote[localSlot]) return localSlot;
+        return sd.hostSlot ? sd.hostSlot[localSlot] : localSlot;
       }
 
       globalThis.__pbStartCoop = async function (cfg) {
@@ -386,6 +1094,17 @@
         R.game = game;
         const coop = new Coop(Net, game);
         coop._stateOf = stateOfPlayer;
+        // Guest-side slot translation: the protocol speaks host slot ids, the
+        // guest's Sd rows are local. Both the adapter and the hit path use this.
+        coop.localSlotOf = localSlotOf;
+        coop.hostSlotOf = hostSlotOf;
+        // `kh.strike` calls `coop.hit(localSlot, …)` on the guest, but the host
+        // must receive its OWN slot id. Wrap rather than change coop.mjs.
+        const rawHit = coop.hit.bind(coop);
+        coop.hit = (slot, dmg, color, dx, dy, knock) =>
+          rawHit(hostSlotOf(slot), dmg, color, dx, dy, knock);
+        const rawStatus = coop.status.bind(coop);
+        coop.status = (slot, kind, val) => rawStatus(hostSlotOf(slot), kind, val);
         R.coop = coop;
         R.room = { code: cfg.room, host: cfg.host, uid, isHost: uid === cfg.host, db };
         R.members = Array.isArray(cfg.members) ? cfg.members.slice() : [];

@@ -29,6 +29,7 @@ import {
   now, token, newProfile, newAccount, hashPassword, checkPassword,
   SEASON, EVENTS, seasonPayload, boardFor, json, body,
 } from './shared.mjs';
+import { socialRoutes, edgeKey, ONLINE_TTL } from './social.mjs';
 
 const SAVE_GAP_MS = 65 * 1000;             // debounced profile save gap
 const PRESENCE_MS = 30 * 60 * 1000;        // presence heartbeat gap
@@ -72,7 +73,7 @@ export function createBackend(db) {
   const requireAccount = async (req, res) => {
     const t = bearer(req);
     const acc = t ? await db.byToken(t) : null;
-    if (!acc) json(res, 401, { error: 'Sesión no válida.' });
+    if (!acc) json(res, 401, { error: 'Invalid session.' });
     return acc;
   };
 
@@ -94,7 +95,7 @@ export function createBackend(db) {
 
   // --- auth
   route('POST', '/auth/guest', async (req, res) => {
-    const name = `Invitado ${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+    const name = `Guest ${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
     const acc = await db.createGuest(name);
     json(res, 200, { id: acc.id, name: acc.name, token: acc.token, guest: true });
   });
@@ -115,12 +116,12 @@ export function createBackend(db) {
 
   route('POST', '/auth/register', async (req, res) => {
     const b = (await body(req)) || {};
-    if (!b.name || !b.password) return json(res, 400, { error: 'Faltan datos.' });
+    if (!b.name || !b.password) return json(res, 400, { error: 'Missing data.' });
     try {
       const acc = await db.createRegistered(b.name, b.password);
       json(res, 200, { id: acc.id, name: acc.name, token: acc.token, guest: false });
     } catch (e) {
-      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'Ese nombre ya está en uso.' });
+      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'That name is already in use.' });
       throw e;
     }
   });
@@ -128,7 +129,7 @@ export function createBackend(db) {
   route('POST', '/auth/login', async (req, res) => {
     const b = (await body(req)) || {};
     const acc = await db.login(b.name, b.password);
-    if (!acc) return json(res, 401, { error: 'Nombre o contraseña incorrectos.' });
+    if (!acc) return json(res, 401, { error: 'Incorrect name or password.' });
     json(res, 200, { id: acc.id, name: acc.name, token: acc.token, guest: false });
   });
 
@@ -142,7 +143,7 @@ export function createBackend(db) {
       await db.upgrade(acc, b.name, b.password);
       json(res, 200, { id: acc.id, name: acc.name, token: acc.token, guest: false });
     } catch (e) {
-      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'Ese nombre ya está en uso.' });
+      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'That name is already in use.' });
       throw e;
     }
   });
@@ -173,7 +174,7 @@ export function createBackend(db) {
     const b = (await body(req)) || {};
     const p = acc.profile;
     const id = Number(b.id);
-    if (![1, 4, 7].includes(id)) return json(res, 400, { error: 'Inicial no válido.' });
+    if (![1, 4, 7].includes(id)) return json(res, 400, { error: 'Invalid starter.' });
     p.starter = id;
     p.lastSpecies = id;
     if (!p.league.includes(id)) p.league.push(id);
@@ -278,7 +279,7 @@ export function createBackend(db) {
   // --- events
   route('GET', '/events/:id', (req, res, url, params) => {
     const ev = EVENTS.find((e) => e.id === params.id);
-    if (!ev) return json(res, 404, { error: 'Evento no encontrado.' });
+    if (!ev) return json(res, 404, { error: 'Event not found.' });
     json(res, 200, { event: ev, track: [], quests: [], points: 0, claimed: [] });
   });
   route('POST', '/events/:id/track', async (req, res) => {
@@ -297,7 +298,7 @@ export function createBackend(db) {
     const id = url.searchParams.get('id');
     const name = url.searchParams.get('name');
     const acc = id ? await db.byId(id) : await db.byName(name);
-    if (!acc) return json(res, 404, { error: 'Jugador no encontrado.' });
+    if (!acc) return json(res, 404, { error: 'Player not found.' });
     json(res, 200, {
       id: acc.id, name: acc.name, created: acc.created,
       species: acc.profile.lastSpecies, avatar: acc.profile.avatar,
@@ -305,13 +306,8 @@ export function createBackend(db) {
       league: acc.profile.league, kills: {}, records: [], runs: [],
     });
   });
-  route('GET', '/players/search', async (req, res, url) => {
-    const q = (url.searchParams.get('q') || '').toLowerCase();
-    const list = await db.searchByName(q, 20);
-    json(res, 200, {
-      players: list.map((a) => ({ id: a.id, name: a.name, species: a.profile.lastSpecies, avatar: a.profile.avatar })),
-    });
-  });
+  // `/players/search` (name search, excluding yourself) is registered by the
+  // shared social route table below, so both backends answer identically.
   route('POST', '/players/:id/report', (req, res) => json(res, 204, undefined));
 
   // --- runs
@@ -330,13 +326,13 @@ export function createBackend(db) {
 
   route('GET', '/runs/:id/build', async (req, res, url, params) => {
     const run = await db.getRun(params.id);
-    if (!run) return json(res, 404, { error: 'Partida no encontrada.' });
+    if (!run) return json(res, 404, { error: 'Run not found.' });
     json(res, 200, { run: run.cfg, seed: run.seed });
   });
 
   route('POST', '/runs/:id/checkpoint', async (req, res, url, params) => {
     const run = await db.getRun(params.id);
-    if (!run) return json(res, 404, { error: 'Partida no encontrada.' });
+    if (!run) return json(res, 404, { error: 'Run not found.' });
     const b = (await body(req)) || {};
     run.cps = (run.cps || []).concat(b.cps || []).slice(-600);
     await db.putRun(run);
@@ -404,19 +400,18 @@ export function createBackend(db) {
   route('GET', '/clans/status', (req, res) => json(res, 200, { clan: null, mail: 0, requests: 0, friends: 0, rewards: 0, board: 0 }));
   route('GET', '/clans/board', (req, res) => json(res, 200, { entries: [], info: seasonPayload() }));
   route('GET', '/clans/search', (req, res) => json(res, 200, { clans: [] }));
-  route('GET', '/clans/:id', (req, res) => json(res, 404, { error: 'Clan no encontrado.' }));
+  route('GET', '/clans/:id', (req, res) => json(res, 404, { error: 'Clan not found.' }));
   route('GET', '/clans/:id/activity', (req, res) => json(res, 200, []));
   route('GET', '/clans/:id/chat', (req, res) => json(res, 200, []));
-  route('POST', '/clans', (req, res) => json(res, 400, { error: 'Los clanes no están disponibles en local.' }));
-  route('POST', '/clans/chat', (req, res) => json(res, 400, { error: 'Los clanes no están disponibles en local.' }));
+  route('POST', '/clans', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
+  route('POST', '/clans/chat', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
   route('POST', '/clans/react', (req, res) => json(res, 204, undefined));
-  route('POST', '/clans/claim', (req, res) => json(res, 400, { error: 'Los clanes no están disponibles en local.' }));
-  route('POST', '/clans/expand', (req, res) => json(res, 400, { error: 'Los clanes no están disponibles en local.' }));
+  route('POST', '/clans/claim', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
+  route('POST', '/clans/expand', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
 
-  route('GET', '/friends', (req, res) => json(res, 200, { friends: [], incoming: [], outgoing: [], max: 100 }));
-  route('POST', '/friends', (req, res) => json(res, 400, { error: 'Los amigos no están disponibles en local.' }));
-  route('POST', '/friends/remove', (req, res) => json(res, 204, undefined));
-  route('POST', '/friends/requests/:id/cancel', (req, res) => json(res, 204, undefined));
+  // --- social (friends, presence, rooms, invites) — shared with server.mjs so
+  // both backends answer identically. `db.social()` is the persistence adapter.
+  for (const r of socialRoutes(socialApi(db)).routes) routes.push(r);
 
   route('POST', '/feedback', (req, res) => json(res, 204, undefined));
 
@@ -428,7 +423,7 @@ export function createBackend(db) {
       await db.rename(acc, b.name);
       json(res, 200, { name: acc.name });
     } catch (e) {
-      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'Ese nombre ya está en uso.' });
+      if (e && e.code === 'CONFLICT') return json(res, 409, { error: 'That name is already in use.' });
       throw e;
     }
   });
@@ -449,6 +444,41 @@ export function createBackend(db) {
   });
 
   return { match: (method, pathname) => matchRoute(routes, method, pathname) };
+}
+
+/**
+ * Adapter between `firebase/social.mjs`'s route table and the DB contract.
+ * Everything the social core needs already exists on the DB interface except
+ * the collections themselves, so the adapter owns the storage layer:
+ *   MemoryDB   -> plain Maps on the instance (cheap, used by the tests)
+ *   FirestoreDB-> `social_edges`, `social_pres`, `social_rooms`, `social_invites`
+ */
+function socialApi(db) {
+  const store = db.social();
+  return {
+    me: async (req, res) => {
+      const t = bearer(req);
+      const acc = t ? await db.byToken(t) : null;
+      if (!acc) json(res, 401, { error: 'Invalid session.' });
+      return acc;
+    },
+    byId: (id) => db.byId(id),
+    byName: (name) => db.byName(name),
+    search: (q, limit) => db.searchByName(q, limit),
+    edges: (uid) => store.edges(uid),
+    saveEdge: (e) => store.saveEdge(e),
+    delEdge: (k) => store.delEdge(k),
+    pres: (ids) => store.pres(ids),
+    setPres: (id, v) => store.setPres(id, v),
+    room: (code) => store.room(code),
+    myRoom: (uid) => store.myRoom(uid),
+    saveRoom: (r) => store.saveRoom(r),
+    delRoom: (code) => store.delRoom(code),
+    invites: (uid) => store.invites(uid),
+    saveInvite: (i) => store.saveInvite(i),
+    delInvite: (from, to) => store.delInvite(from, to),
+    flush: () => store.flush(),
+  };
 }
 
 // ---------------------------------------------------------------- MemoryDB ----
@@ -537,6 +567,39 @@ export class MemoryDB {
   }
 
   async allAccounts() { return [...this.accounts.values()]; }
+
+  /**
+   * Social collections (friends, presence, rooms, invites). In memory these are
+   * plain Maps; the Firestore adapter persists the same shapes.
+   */
+  social() {
+    if (!this._social) {
+      const edges = new Map(), pres = new Map(), rooms = new Map(), invites = new Map();
+      this._social = {
+        edges: async (uid) => [...edges.values()].filter((e) => e.users.includes(uid)),
+        saveEdge: async (e) => { edges.set(edgeKey(e.users[0], e.users[1]), e); },
+        delEdge: async (k) => { edges.delete(k); },
+        pres: async (ids) => {
+          const out = {};
+          for (const id of ids) if (pres.has(id)) out[id] = pres.get(id);
+          return out;
+        },
+        setPres: async (id, v) => { pres.set(id, v); },
+        room: async (code) => rooms.get(code) || null,
+        myRoom: async (uid) => {
+          for (const r of rooms.values()) if (r.m && r.m[uid]) return r;
+          return null;
+        },
+        saveRoom: async (r) => { rooms.set(r.code, r); },
+        delRoom: async (code) => { rooms.delete(code); },
+        invites: async (uid) => [...invites.values()].filter((i) => i.to === uid),
+        saveInvite: async (i) => { invites.set(`${i.to}|${i.from}`, i); },
+        delInvite: async (from, to) => { invites.delete(`${to}|${from}`); },
+        flush: () => { /* nothing to persist */ },
+      };
+    }
+    return this._social;
+  }
 
   async save(account) { /* mutated in place; nothing to persist */ }
 
@@ -755,6 +818,100 @@ export class FirestoreDB {
   async putRun(run) {
     if (!this.rtdb) { this._runsMem.set(run.id, run); return; }
     await this.rtdb.ref(`runs/${run.id}`).set(run);
+  }
+
+  /**
+   * Social collections. Kept out of `saves/{uid}` so the big profile document is
+   * never rewritten by a heartbeat, a friend request or a room change:
+   *   social_edges/{uidA_uidB}   { users, from, to, status, names, at }
+   *   social_pres/{uid}          { at, room, play }
+   *   social_rooms/{code}        { code, host, open, started, seed, at, m }
+   *   social_invites/{to_from}   { from, to, room, name, at }
+   * Reads are point reads by key except `edges(uid)`, which uses the `users`
+   * array-contains index (2 reads per friend list load, as in the reference).
+   */
+  social() {
+    if (this._social) return this._social;
+    const col = (name) => this.db.collection(name);
+    const mem = {
+      edges: new Map(), pres: new Map(), rooms: new Map(), invites: new Map(),
+    };
+    const doc = (name, id) => col(name).doc(id);
+    this._social = {
+      edges: async (uid) => {
+        try {
+          const q = await col('social_edges').where('users', 'array-contains', uid).get();
+          return q.docs.map((d) => ({ ...d.data() }));
+        } catch {
+          return [...mem.edges.values()].filter((e) => e.users.includes(uid));
+        }
+      },
+      saveEdge: async (e) => {
+        const k = edgeKey(e.users[0], e.users[1]);
+        mem.edges.set(k, e);
+        await doc('social_edges', k).set({ ...e });
+      },
+      delEdge: async (k) => {
+        mem.edges.delete(k);
+        await doc('social_edges', k).delete().catch(() => {});
+      },
+      pres: async (ids) => {
+        if (!ids.length) return {};
+        const out = {};
+        try {
+          const snaps = await this.db.getAll(...ids.map((id) => doc('social_pres', id)));
+          for (const s of snaps) if (s.exists) out[s.id] = s.data();
+        } catch {
+          for (const id of ids) if (mem.pres.has(id)) out[id] = mem.pres.get(id);
+        }
+        return out;
+      },
+      setPres: async (id, v) => {
+        mem.pres.set(id, v);
+        await doc('social_pres', id).set({ ...v }).catch(() => {});
+      },
+      room: async (code) => {
+        try {
+          const s = await doc('social_rooms', code).get();
+          return s.exists ? s.data() : (mem.rooms.get(code) || null);
+        } catch {
+          return mem.rooms.get(code) || null;
+        }
+      },
+      myRoom: async (uid) => {
+        // No index on map keys: read the rooms this server has touched. Local
+        // rooms are short-lived (a lobby), so the in-process map is complete for
+        // anyone playing through this instance.
+        for (const r of mem.rooms.values()) if (r.m && r.m[uid]) return r;
+        return null;
+      },
+      saveRoom: async (r) => {
+        mem.rooms.set(r.code, r);
+        await doc('social_rooms', r.code).set({ ...r }).catch(() => {});
+      },
+      delRoom: async (code) => {
+        mem.rooms.delete(code);
+        await doc('social_rooms', code).delete().catch(() => {});
+      },
+      invites: async (uid) => {
+        try {
+          const q = await col('social_invites').where('to', '==', uid).get();
+          return q.docs.map((d) => ({ ...d.data() }));
+        } catch {
+          return [...mem.invites.values()].filter((i) => i.to === uid);
+        }
+      },
+      saveInvite: async (i) => {
+        mem.invites.set(`${i.to}|${i.from}`, i);
+        await doc('social_invites', `${i.to}_${i.from}`).set({ ...i });
+      },
+      delInvite: async (from, to) => {
+        mem.invites.delete(`${to}|${from}`);
+        await doc('social_invites', `${to}_${from}`).delete().catch(() => {});
+      },
+      flush: () => {},
+    };
+    return this._social;
   }
 }
 

@@ -1,5 +1,6 @@
 # PokéBonk co-op integration plan
 
+> Note: Quoted Spanish strings throughout this document (e.g. `Jugar`, `¡Te elijo a ti!`, `¡Empezar!`, `Liga`, `Elige región`) are literal upstream bundle identifiers/selectors, not prose.
 This is the concrete patch plan for wiring `net/net.mjs` + `net/coop.mjs` into the
 minified client bundle (`pokebonk-re/main.pretty.js`, the beautified copy of the
 served Vite bundle). All line numbers below were read from `main.pretty.js` and
@@ -333,63 +334,180 @@ peer transitions — on a guest whose host dropped it calls `lost(msg)`; on a ho
 calls `mateGone`. `Coop.leave()` covers voluntary exit; `Coop.broadcast()`/`toHost()`
 cover the rest. `DC.checkpoint` (line 62189) and `DC.finish` are the two save points.
 
-## Integration status — APPLIED (patched served bundle)
+## Integration status — hooks in the mirror, fixes at serve time
 
-The bundle hooks are no longer just a plan. `main.pretty.js` (the beautified copy,
-semantically identical to the served chunk) was patched and copied over
-`public/assets/main-D5OUVqGK-mvilprw2.js` (same filename, so the entry chunk's
-dynamic import still resolves; original minified saved as
-`main-D5OUVqGK-mvilprw2.js.bak`). Every hook is a guarded no-op (`this.coop` /
-`this.run.coop` is undefined in single-player), so the single-player build is
-unaffected.
+Two different things, and confusing them cost a debugging session:
 
-Applied hooks (verified by grep on the served bundle):
+- **The co-op hooks are already in the mirrored bundle on disk.**
+  `public/assets/main-D5OUVqGK-mvilprw2.js` (2.6 MB, CRLF, tracked in git) contains
+  every hook the protocol needs. It is NOT rebuilt or rewritten at serve time.
+- **`server.mjs` only applies a handful of small string patches** at serve time,
+  because those specific behaviours could not be expressed in the mirror.
+
+The entry chunk `main-BcyzVqXo-mvilprw2.js` (9 KB) only does
+`import('./main-D5OUVqGK-mvilprw2.js')`, so `main-D5OUVqGK` **is** the game; the
+`serveStatic` gate on `rel.includes('main-D5OUVqGK')` matches the file that is
+actually loaded.
+
+### Hooks verified present in the mirror
 
 | Hook | Where | What |
 |---|---|---|
-| E1 sidecar | `Sd` fields (~11883) | `remote = new Uint8Array(fd)`, `net = new Float32Array(fd*4)` |
-| E2 spawn emit | `Sd.spawn` (~11923) | `coop.enemyAdded({slot,species,x,z,boss,shiny:0,maxHp,dmg,behavior})` before `return` |
-| E3 despawn emit | `Sd.kill` (~11927) | `coop.enemyGone({slot}, false)` inside the `alive` guard |
-| E4 interp | `Sd.update` (~11932/11949) | `coopRemoteUpdate` helper + `if (this.remote[l]) { …; continue }` branch |
-| E5 hit forward | `kh.strike` (~31610) | `if (i.remote[e]) { coop.hit(e, t, …); return 0 }` |
-| E6 death emit | `kh.killEnemy` (~31964) | `coop.enemyGone({slot}, true)` in the actually-died branch |
-| E7 puppet guard | `Yg.update`/`gainLevel`/`addXp` (~36911/36227/36231) | remote puppet follows `this.net`; remote+guest never gain XP/level |
-| E8 15 Hz tick | `DC.update` (~62725) | `this.coop && this.coop.tick(this.realDt)` every frame |
-| E9 finish | `DC.finish` (~62341) | `coop.over(...)` + clears `__pb.run`/`__pb.coop` |
-| E10 level sync | `DC.doLevelUp` (~62378) | host `coop.levelStart(this.player.level)` |
-| E12 run bridge | `App.openRun` (~82455) | `globalThis.__pb.run = this.run` |
-| E13 puppets | module tail (~82603) | `globalThis.__pbMakePuppets(run, members, meUid)` creates remote `Yg` puppets |
-| E14 world split | `DC.simulate` (~62785) | guest (`coop && !isHost`) skips director/boss/minibosses/events/capture/mewtwo/allies/pickups; keeps `enemies.update` (remote interp) + `terrain.update` |
+| E1 sidecar | `Sd` fields (L11877) | `remote = new Uint8Array(fd)`, `net = new Float32Array(fd*4)` |
+| E2 spawn emit | `Sd.spawn` (L11923) | `coop.enemyAdded({slot,species,x,z,boss,shiny:0,maxHp,dmg,behavior})` |
+| E3 despawn emit | `Sd.kill` (L11927) | `coop.enemyGone({slot}, false)` inside the `alive` guard |
+| E4 interp | `Sd.update` (L11950) + `coopRemoteUpdate` (L11932) | remote rows interpolate toward `net`, never simulate |
+| E5 hit forward | `kh.strike` (L31610) | `if (i.remote[e]) { coop.hit(e, …); return 0 }` |
+| E6 death emit | `kh.killEnemy` (L31964) | `coop.enemyGone({slot}, true)` in the died branch |
+| E7 puppet guards | `Yg.update` (L36911), `gainLevel`/`addXp` (L36227/36231) | puppet follows `this.net`; remote + guest never gain XP/level |
+| E8 per-frame tick | `DC.update` (L62734) | `this.coop && this.coop.tick(this.realDt)` — runs in every state, incl. the modal |
+| E9 finish | `DC.finish` (L62348) | `coop.over(...)` + clears `__pb.run` |
+| E10 level start | `DC.doLevelUp` (L62385) | host `coop.levelStart(this.player.level)` |
+| E11 puppet render | `DC.renderWorld` → `renderCoopPlayers` (L63050/63058) | draws `coop.puppets()` from `pl.net` |
+| E12 run bridge | `App.openRun` (L82492) | `globalThis.__pb.run = this.run` |
+| E13 puppet factory | module tail (L82632) | `globalThis.__pbMakePuppets(run, members, meUid)` |
+| E14 world split | `DC.simulate` (L62785) | guest skips director/boss/events/capture/pickups/clock |
 
-Bridge: `public/index.html` now has an importmap (`net`, `coop`, `signaling`) and a
-module bootstrap that exposes `globalThis.__pbStartCoop(cfg)`, `__pbMakePuppets`,
-and the `gameAdapter` mapping (team stats, enemy list/remote lifecycle, hit/status
-application, reseed on `start`). Co-op is inert until `__pbStartCoop` is called.
+`assertMirrorHooks()` in `server.mjs` re-checks all of these on the first bundle
+request and logs `[pb-patch] mirror hook missing: …` if the mirror ever changes.
 
-Signaling: `net/signaling-local.mjs` implements the `{ rtdb.ref(path).on/.off/.push }`
-shape net.mjs expects, over a new dependency-free in-memory relay in `server.mjs`
-(SSE `GET /signaling/stream`, POST `/signaling/send`), which also serves `/net/*.mjs`.
-This local relay IS the relay-fallback channel and carries both SDP/ICE signaling and
-3 Hz relay frames.
+### Serve-time patches (`server.mjs` → `serveStatic`)
 
-Not yet wired (documented gaps, no UI entry point to start co-op yet):
-- Level-up card pick callback → `coop.localPicked()` (anchor `DC.doLevelUp`,
-  `showLevelUp` callback ~62388).
-- HUD teammates block (`eM.hud` ~78543; `Coop.players()` provides the data).
-- Shiny flag in `enemyAdded` is hardcoded 0 (no `Sd` shiny lookup yet).
-- Damage-number popups (`hurtShown`) and ghost casts are stubs in the gameAdapter.
+Applied once, cached in `PATCHED`, anchored on unique substrings. A missing anchor
+logs `[pb-patch] anchor not found: …`; a duplicated one logs
+`[pb-patch] anchor not unique: …`. The bundle is never written to disk.
+
+| # | Anchor | Replacement | Why |
+|---|---|---|---|
+| 0 | `https://api.pokebonk.com` | `/api` | offline backend |
+| 0 | `https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit` | `/turnstile-stub.js` | offline Turnstile |
+| A1 | `const p = new Yg(run, m.dex ?? run.startSpecies ?? 1, run.meta.labStats());` | `(m.dex \| 0) \|\| run.startSpecies \|\| 1` | the invisible-teammate bug, below |
+| A2 | `this.player = new Yg(this, this.startSpecies, this.meta.labStats()), this.allies = new mp(this)` | inserts `__pbBuildPuppets(this),` | build puppets inside `buildStage`, so a reseed rebuilds them |
+| A3 | `renderCoopPlayers(e) {… let list = c.puppets();` | filters to one renderable entry per uid | never draw a stale placeholder twice |
+| A4 | `this.renderWorld(i ? r : 0), this.vfx.update(` | inserts `__pbSyncPuppets(this),` | copy wire → world position every frame |
+| A5 | `let a = Math.min(1, (now - s.t) / 66), …` | `let x = s.x, z = s.z,` | remove the interpolation clock that froze puppets |
+| A6 | `n = (e = !0) => { … this.ui.hideModal(), …` | inserts `this.coop && this.coop.localPicked(),` | level-up card tells the session; without it the host deadlocks |
+| A7 | `credit(e, t, n) {\r\n   let r = this.run,\r\n    i = r.enemies,` | guard before `let` | a guest must never credit a remote copy |
+| A8 | `  render() {\r\n   let e = this.run,\r\n    t = e.sprites.get(this.speciesId),` + the sprite/shadow push lines | draw-time `_dx/_dz` from `__pbDrawOffset` | separate overlapping sprites **without touching `pl.pos`** |
+
+> **A7 gotcha.** The guard has to go *before* `let r = …, i = …, a = …`. Splicing a
+> `;` into that declaration list turns `a = i.flags[e]` into a bare assignment and
+> throws `Assignment to constant variable` inside `credit` — which silently skips
+> `killEnemy` and makes forwarded guest hits do damage that never kills.
+
+## The two bugs that made teammates invisible
+
+### 1. `dex: 0` made `__pbMakePuppets` throw
+
+`coop-ui.mjs` sends `dex: myDex()`, and `myDex()` reads `localStorage['pb.save']` —
+a key the bundle never writes — so the room stored `dex: 0` for every member.
+The factory did `new Yg(run, m.dex ?? run.startSpecies ?? 1, …)`; `0 ?? x` keeps
+`0`, so `O.get(0)` returned `undefined` and `Yg`'s constructor died on
+`this.data.types`.
+
+That throw escaped `beginCoop()`'s factory loop, so `coop.mates[*].pl` stayed as the
+placeholders `Coop.begin()` creates — `{uid, name, remote, x, y, dead}`, with no
+`pos`, `render` or `net`. `renderCoopPlayers` skips exactly those, so nothing was
+drawn.
+
+Observed directly in a live run:
+
+```
+__pbMakePuppets(run, [{uid:'other', dex:0}], 'me')
+  -> THROW: Cannot read properties of undefined (reading 'types')
+__pbMakePuppets(run, [{uid:'other', dex:4}], 'me')
+  -> [{ hasRender: 'function', remote: true, speciesId: 4, hp: 104 }]
+```
+
+**Lesson:** a numeric field with `0` as a legitimate "unset" must not go through
+`??`. Use `| 0` + `||`.
+
+### 2. Stale `coop.local` after the guest reseeds
+
+A guest receives the host's `start` (seed) and calls `buildStage(true)`, which
+creates a **new** `Yg` for `run.player`. `Coop.begin()` had captured the old one in
+`this.local`, so the guest kept broadcasting the old object's frozen position: the
+host's puppet never moved (observed: guest at `z=0.34`, host `net` stayed `{0,0}`).
+`__pbBuildPuppets` now re-points `coop.local = run.player` on every call, and
+`startCoop` only reseeds when the seed actually differs.
+
+### 3. Guest and host slot indices are different namespaces
+
+`addRemoteEnemy` used `sd.spawn()`, which allocates from the **guest's own** free
+list — not the host's slot id from the `ne` event. The wire protocol (and every
+`'h'` hit the guest sends back) speaks host slot ids, so without a mapping a guest
+hit landed on whatever unrelated row happened to share that index. The bridge now
+keeps `sd.hostSlot[local] = host` and translates in both directions
+(`coop.localSlotOf` / `coop.hostSlotOf`, with `coop.hit`/`coop.status` wrapped).
+
+### 4. `applyHit` was not `silent`, and slot 0 was dropped as falsy
+
+Two independent bugs in the forwarded-hit path, both of which made guest kills
+invisible. They had to be fixed together — fixing either alone still left
+`stats.kills` at 0.
+
+**(a) `if (!e) break` in `Coop.onClientFrame`.** `game.getEnemy(slot)` returns the
+**slot number**, not an object, so a truthiness test rejects slot `0` — the first
+enemy of every run, and the slot any freshly spawned test enemy lands on:
+
+```js
+case 'h': {
+  const e = this.game.getEnemy ? this.game.getEnemy(ev[1]) : null;
+  if (!e) break;            // <-- slot 0 is falsy: the hit is silently dropped
+```
+
+Fixed to `if (e == null) break` in both the `'h'` and `'s'` cases. This is the same
+class of mistake as the `dex: 0` bug above: **`0` is a valid id, so never test ids
+for truthiness.**
+
+**(b) `applyHit` did not pass `silent: true`.** Without it the host ran the local
+damage-number/audio block, which needs a move definition for `n.slot` that a
+forwarded hit does not have. It threw and skipped the
+`i.hp[e] <= 0 && this.killEnemy(e, n)` tail: damage landed but the enemy never died
+(host HP 30 → 8.6, kills stayed 0).
+
+Verified end to end on host slot 0, both entry points:
+
+```
+guest slot mapping  {"hostSlot":0,"local":0,"isRemote":true,"hostSlotOfLocal":0}
+guest normal attack {"strikeReturn":0,"outEvAdded":1,"outEv":[["h",0,99999,16777215,0,0,0]]}
+host after          {"kills":1,"hp":0,"dying":0.20}
+guest raw coop.hit  {"outEvAdded":1,"outEv":[["h",0,99999,16777215,0,0,0]]}
+host after          {"kills":2,"hp":0,"dying":0.25}
+```
+
+The full chain, for the record: guest `kh.hit` → `strike` sees `i.remote[slot]` →
+`coop.hit(localSlot)` (wrapped to translate to the host slot) → `outEv.push(['h',…])`
+→ `flushClient` → `net.toHost` → host `onClientFrame` `case 'h'` → `game.getEnemy`
+→ `applyHit` → `combat.hit(slot, dmg, {fixed, silent})` → `killEnemy` → `credit`
+→ `stats.kills++`, then the host's `k:'f'` frame carries `ki` back to the guest.
+
+### 5. The guest's level-up card closed itself
+
+`Coop.onHostFrame` closes the local card whenever a frame arrives without an `lu`
+field — which on the guest is *every* frame. The adapter's `inLevelUp()` reported
+`true` while the card was open, so the card vanished one frame after opening. The
+guest's card is now closed only by the host's explicit `'lr'`.
 
 ## Verification (actually run)
 
-- `node --check public/assets/main-D5OUVqGK-mvilprw2.js` → parses as an ES module (OK).
-- `node --check` on `net.mjs` / `coop.mjs` / `codec.mjs` / `signaling-local.mjs` → OK.
-- `node --test net/codec.test.mjs` → 14/14 pass.
-- `node --test net/signaling.test.mjs` → 4/4 pass (boots `server.mjs`, asserts the
-  bridge in `index.html`, the co-op hooks + applied string patches in the served
-  bundle, `/net/*.mjs` serving, and a create→join→send→deliver relay round-trip).
-- Serve-time string patches still match: both literals are intact single-line in the
-  beautified output (`https://api.pokebonk.com` at line 81991,
-  `https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit` at line
-  81196), and the served bundle shows `/turnstile-stub.js` + no `api.pokebonk.com`,
-  proving `server.mjs`'s `split/join` still matches.
-- Live two-browser co-op play was NOT verified (no browser automation available).
+- `node --test net/codec.test.mjs net/signaling.test.mjs net/signaling-local.test.mjs`
+  → 24/24 pass.
+- `node --check` on the served (patched) bundle → parses as an ES module.
+- `.coop-verify/coop-drive.mjs` — two **separate** Playwright browser contexts,
+  driven **only** through the in-game screens (friends → invite → lobby → Start).
+  `coop-ui.mjs`'s `startLocalRun()` walks menu → League (`Liga`) → region screen → run by
+  itself; the driver never clicks `.mm-item`, `.ls-go` or `.rg-go`.
+  Per run it asserts: both contexts reach `state === 'play'`; 5 position samples
+  match in both directions; a guest-caused kill increments the host's counter; a
+  host level-up freezes both, shows the guest a usable card, and resumes both;
+  puppets stay at level 1 / 0 XP; zero uncaught console errors.
+- Region-screen selector verified against the bundle, not guessed:
+  `<div class="rg-go"><button class="btn big red" onclick=T>` at L73997;
+  `.rg-go` is unique in the bundle.
+
+## Still not wired
+
+- HUD teammates block (`eM.hud`); `Coop.players()` has the data.
+- `enemyAdded` hardcodes `shiny: 0` (no `Sd` shiny lookup).
+- Ghost casts (`ghostCast`) and remote pickup events are stubs in the bridge adapter.

@@ -1,0 +1,21 @@
+{
+  "buildCommand": "node tools/prepatch.mjs dist",
+  "outputDirectory": "dist",
+  "framework": null,
+  "functions": {
+    "api/[...path].mjs": {
+      "includeFiles": "firebase/**"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ data/store.json
 mirror-report.json
 probe-report.json
 deploy/
+dist/
 
 # Logs and tooling scratch.
 firebase-debug.log

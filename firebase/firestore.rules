@@ -2,7 +2,7 @@ rules_version = '2';
 // PokéBonk — Firestore security rules.
 //
 // The game API server writes with the Admin SDK (which bypasses these rules),
-// so these are defense-in-depth and enable direct client reads in the future.
+// so these provide defense-in-depth and secure direct client reads/writes.
 // Every trainer's data is keyed by their Firebase Auth uid.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -36,7 +36,24 @@ service cloud.firestore {
       allow write: if false; // server (Admin SDK) only
     }
 
-    // Social collections (stubbed in this reconstruction; scoped for the future).
+    // Social collections (backend.mjs social storage)
+    match /social_edges/{id} {
+      allow read: if signedIn();
+      allow write: if false; // server (Admin SDK) only
+    }
+    match /social_pres/{uid} {
+      allow read: if signedIn();
+      allow write: if owner(uid);
+    }
+    match /social_rooms/{code} {
+      allow read: if signedIn();
+      allow write: if false; // server (Admin SDK) only
+    }
+    match /social_invites/{id} {
+      allow read, write: if signedIn();
+    }
+
+    // Legacy / alias social collections
     match /friends/{uid} {
       allow read, write: if owner(uid);
     }

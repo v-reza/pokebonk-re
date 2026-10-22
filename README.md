@@ -24,13 +24,56 @@ Open http://127.0.0.1:8080/ → *Play as a guest* → pick a starter → *Play* 
 
 ## How the client is redirected
 
-`server.mjs` rewrites two things while serving:
+`server.mjs` rewrites these while serving (serve-time string patches, applied once,
+cached; a missing anchor logs `[pb-patch] anchor not found` instead of failing
+silently). Nothing is written back to disk:
 
-1. `assets/main-D5OUVqGK-mvilprw2.js`: `https://api.pokebonk.com` → `/api`, and the
-   Turnstile script URL → `/turnstile-stub.js`.
+1. `assets/main-D5OUVqGK-mvilprw2.js` — the game bundle, loaded by the small
+   `main-BcyzVqXo-mvilprw2.js` entry via `import()`:
+   - `https://api.pokebonk.com` → `/api`
+   - the Turnstile script URL → `/turnstile-stub.js`
+   - `__pbMakePuppets`: `m.dex ?? run.startSpecies ?? 1` → `(m.dex | 0) || run.startSpecies || 1`
+   - `DC.buildStage`: insert `__pbBuildPuppets(this)` after the local player
+   - `DC.update`: insert `__pbSyncPuppets(this)` before `renderWorld`
+   - `DC.renderCoopPlayers`: drop the interpolation clock, de-duplicate by uid
+   - `DC.doLevelUp`: call `coop.localPicked()` when the card closes
+   - `kh.credit`: guest guard so remote copies never count kills
 2. `index.html`: drops the `static.cloudflareinsights.com` beacon.
 
+The mirrored bundle already contains the co-op hooks the protocol needs
+(`Sd` sidecar + `enemyAdded`/`enemyGone`, `kh.strike` hit forwarding, `Yg` puppet
+guards, `DC.update` tick, `DC.simulate` guest split, `renderCoopPlayers`,
+`__pbMakePuppets`). `assertMirrorHooks()` checks all of them on the first request
+and warns if the mirror ever changes.
+
 Everything else is byte-identical to the upstream build.
+
+## Co-op
+
+Co-op is host-authoritative: the host simulates enemies, pickups, team XP and the
+clock; guests simulate only their own Pokémon and forward hits. Signaling goes
+through the in-memory relay in `server.mjs` (`?local=1`).
+
+In-game flow: *CO-OP* pill in the trainer bar → add a friend by name → *Create room*
+→ *Invite* → both in the lobby → *Start run*. `public/net/coop-ui.mjs`
+drives the bundle's own run-start path (menu → Liga → region screen → run), so no
+manual clicking outside the UI is needed.
+
+![Two players in one run](docs/coop/host-two-players.png)
+
+Both contexts see two Pokémon: the host's world (above) draws the guest's puppet,
+and the guest's world draws the host's. Puppets are real `Yg` instances driven by
+wire state (`pl.net` → `pos` every frame in `DC.update`), so they animate, face
+the right way, and never gain XP, level up, or take local damage.
+
+![Guest view](docs/coop/guest-two-players.png)
+
+Known limits: the HUD has no teammate block yet, `enemyAdded` sends `shiny: 0`,
+and ghost casts / remote pickup events are stubs in the bridge adapter.
+## Languages
+
+English is the default language across the client. A `?lang=xx` URL query parameter and the in-game language selector (persisted in `localStorage['pokebonk.lang']`) override this default for the upstream game content. The co-op UI always renders in English regardless of the active game locale.
+
 
 ## API surface (client contract, from static analysis)
 
