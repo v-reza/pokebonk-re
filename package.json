@@ -1,0 +1,11 @@
+{
+  "name": "pokebonk-local",
+  "version": "0.8.13",
+  "private": true,
+  "type": "module",
+  "description": "Offline reconstruction of the PokéBonk web client with a local API backend",
+  "scripts": {
+    "start": "node server.mjs",
+    "mirror": "node tools/pull.mjs && node tools/probe.mjs"
+  }
+}

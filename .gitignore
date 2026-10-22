@@ -1,0 +1,14 @@
+# Runtime state — regenerated on boot, contains test accounts. Do not commit.
+data/store.json
+
+# Build/scan artifacts (regenerable).
+mirror-report.json
+probe-report.json
+deploy/
+
+# Logs and tooling scratch.
+firebase-debug.log
+*.log
+.playwright-mcp/
+
+node_modules/

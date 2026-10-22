@@ -1,0 +1,59 @@
+rules_version = '2';
+// PokéBonk — Firestore security rules.
+//
+// The game API server writes with the Admin SDK (which bypasses these rules),
+// so these are defense-in-depth and enable direct client reads in the future.
+// Every trainer's data is keyed by their Firebase Auth uid.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    // A trainer's save document: profile, run history, auth token hash.
+    match /saves/{uid} {
+      allow read: if owner(uid);
+      allow write: if owner(uid);
+    }
+
+    // Run history (reserved). The server consolidates run history into
+    // saves/{uid}.profile.runs to honour the "one write per run finish"
+    // constraint, so this collection is not currently written.
+    match /runs/{runId} {
+      allow read: if signedIn();
+      allow write: if false; // server (Admin SDK) only
+    }
+
+    // Presence heartbeat (updated every 30 minutes by the server).
+    match /pres/{uid} {
+      allow read: if signedIn();
+      allow write: if owner(uid);
+    }
+
+    // Leaderboard entries (server-written, readable by signed-in users).
+    match /lbs/{lb} {
+      allow read: if signedIn();
+      allow write: if false; // server (Admin SDK) only
+    }
+
+    // Social collections (stubbed in this reconstruction; scoped for the future).
+    match /friends/{uid} {
+      allow read, write: if owner(uid);
+    }
+    match /friendships/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /names/{name} {
+      allow read: if signedIn();
+      allow write: if false; // server (Admin SDK) only — unique-name index
+    }
+    match /inv/{id} {
+      allow read, write: if signedIn();
+    }
+    match /reports/{id} {
+      allow read: if false; // private reports
+      allow write: if signedIn();
+    }
+  }
+}

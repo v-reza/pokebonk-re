@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aviso legal y privacidad · PokéBonk</title>
+<meta name="description" content="Aviso legal, propiedad intelectual, retirada de contenido y política de privacidad de PokéBonk, fan-game gratuito y sin ánimo de lucro." />
+<link rel="canonical" href="https://pokebonk.com/legal" />
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="PokéBonk" />
+<meta property="og:title" content="Aviso legal y privacidad · PokéBonk" />
+<meta property="og:description" content="Aviso legal, propiedad intelectual, retirada de contenido y política de privacidad de PokéBonk, fan-game gratuito y sin ánimo de lucro." />
+<meta property="og:url" content="https://pokebonk.com/legal" />
+<meta property="og:image" content="https://pokebonk.com/social/card-es.jpg" />
+<meta property="og:locale" content="es_ES" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  :root { --ink: #2a2440; --muted: #6a6680; --line: #e2def5; --bg: #f4f2fb; --card: #ffffff; --accent: #ff5a5f; --blue: #2563d8; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #ecebf5; --muted: #a9a6c0; --line: #3a3558; --bg: #1a1630; --card: #241f3d; --accent: #ff7a7f; --blue: #7aa8ff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  header { background: linear-gradient(90deg, #ff5a5f, #ff9a3a); color: #fff; padding: 28px 16px; }
+  header div, main { max-width: 820px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 28px; }
+  header p { margin: 6px 0 0; opacity: .95; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  nav a { color: #fff; background: rgba(0,0,0,.18); padding: 4px 12px; border-radius: 999px; text-decoration: none; font-size: 14px; font-weight: 600; }
+  main { padding: 24px 16px 48px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; margin-bottom: 16px; }
+  h2 { margin: 0 0 10px; font-size: 21px; }
+  h3 { margin: 16px 0 6px; font-size: 16px; }
+  p, li { color: var(--ink); }
+  ul { padding-left: 20px; margin: 6px 0; }
+  a { color: var(--blue); }
+  .muted { color: var(--muted); font-size: 14px; }
+  .box { border-left: 4px solid var(--accent); padding: 8px 14px; background: rgba(255,90,95,.08); border-radius: 0 10px 10px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .back { display: inline-block; margin-top: 8px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header><div>
+  <h1>Aviso legal y privacidad</h1>
+  <p>PokéBonk · fan-game gratuito, sin ánimo de lucro y no oficial</p>
+  <nav>
+    <a href="#proyecto">El proyecto</a><a href="#marcas">Marcas y derechos</a><a href="#licencias">Recursos y licencias</a>
+    <a href="#retirada">Retirada de contenido</a><a href="#privacidad">Privacidad</a><a href="#normas">Normas</a><a href="#contacto">Contacto</a>
+  </nav>
+</div></header>
+<main>
+
+<section id="proyecto">
+  <h2>1. Qué es PokéBonk</h2>
+  <p>PokéBonk es un <b>proyecto fan</b> hecho por un aficionado, por cariño a Pokémon y a los juegos de tipo <i>survivors</i>. Es un homenaje no oficial que se juega en el navegador.</p>
+  <ul>
+    <li><b>Es gratuito y no tiene ánimo de lucro.</b> No hay publicidad, compras, suscripciones, donaciones, mecenazgos, patrocinios, venta de productos ni ventajas de pago de ningún tipo. No se acepta dinero por él en ninguna plataforma.</li>
+    <li>El coste del servidor lo paga de su bolsillo el responsable del proyecto.</li>
+    <li>No se distribuye como descarga ni en tiendas de aplicaciones. Solo se juega en esta web.</li>
+  </ul>
+  <p>Responsable del proyecto: <b>Charcher</b> · <a href="/cdn-cgi/l/email-protection#fb9894958f9a988f94bb8b94909e99949590d5989496"><span class="__cf_email__" data-cfemail="5635393822373522391626393d333439383d7835393b">[email&#160;protected]</span></a></p>
+</section>
+
+<section id="marcas">
+  <h2>2. Marcas y derechos de autor</h2>
+  <div class="box">
+    <p><b>PokéBonk no está afiliado, patrocinado, respaldado ni aprobado por Nintendo, The Pokémon Company, Creatures Inc. ni GAME FREAK inc.</b></p>
+  </div>
+  <p>Pokémon, los nombres de los Pokémon y de sus personajes, movimientos, objetos y lugares, así como sus diseños, imágenes y sonidos, son marcas comerciales y obras protegidas de sus titulares: © 1995-2026 Nintendo / Creatures Inc. / GAME FREAK inc. / The Pokémon Company.</p>
+  <ul>
+    <li>Este proyecto no reclama ninguna propiedad sobre ellos. Se usan únicamente como homenaje de un aficionado, sin fines comerciales.</li>
+    <li>Todas las marcas mencionadas pertenecen a sus respectivos propietarios.</li>
+    <li>«Megabonk» es un juego de vedinad que ha servido de inspiración. PokéBonk tampoco está relacionado con él.</li>
+  </ul>
+</section>
+
+<section id="licencias">
+  <h2>3. Recursos de terceros y licencias</h2>
+  <table>
+    <tr><th>Recurso</th><th>Origen y licencia</th></tr>
+    <tr><td>Animaciones y retratos de los Pokémon</td><td>Proyecto comunitario <a href="https://github.com/PMDCollab/SpriteCollab" rel="noopener">PMD SpriteCollab</a>, con licencia <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.es" rel="noopener">CC BY-NC 4.0</a> (solo uso no comercial y con atribución). El arte original de <i>Pokémon Mystery Dungeon</i> es de Spike Chunsoft. Los créditos de cada artista y de cada especie están en la pantalla de Créditos del juego.</td></tr>
+    <tr><td>Datos de los Pokémon (estadísticas, movimientos, tipos, evoluciones), iconos de objetos y gritos</td><td><a href="https://pokeapi.co" rel="noopener">PokeAPI</a> y sus repositorios públicos.</td></tr>
+    <tr><td>Escenarios, árboles, rocas, modelos 3D, efectos visuales, iconos de la interfaz y música</td><td>Creados para este proyecto, con herramientas de generación de imagen y audio y con Blender.</td></tr>
+    <tr><td>Tipografías</td><td>Nunito y M PLUS Rounded 1c, con licencia SIL Open Font License, servidas desde este mismo dominio.</td></tr>
+    <tr><td>Logotipo de Discord</td><td>Marca de Discord Inc., usada sin modificar para enlazar a la comunidad.</td></tr>
+  </table>
+  <p class="muted">Si eres autor de algún recurso y no apareces en los créditos, o prefieres que se retire, escríbenos y lo corregimos.</p>
+</section>
+
+<section id="retirada">
+  <h2>4. Retirada de contenido (titulares de derechos)</h2>
+  <p>Si eres titular de derechos, o actúas en su nombre, y consideras que algún contenido de PokéBonk no debería estar aquí, escribe a <a href="/cdn-cgi/l/email-protection#d8bbb7b6acb9bbacb798a8b7b3bdbab7b6b3f6bbb7b5"><span class="__cf_email__" data-cfemail="73101c1d071210071c33031c1816111c1d185d101c1e">[email&#160;protected]</span></a> indicando qué contenido es.</p>
+  <ul>
+    <li><b>No hace falta ningún requerimiento formal.</b> Se atenderá cualquier petición de buena fe.</li>
+    <li>El contenido señalado, o el proyecto completo si así se pide, <b>se retirará en un plazo máximo de 72 horas</b>.</li>
+    <li>El proyecto no se opondrá a la decisión de los titulares de Pokémon.</li>
+  </ul>
+</section>
+
+<section id="privacidad">
+  <h2>5. Política de privacidad</h2>
+  <p class="muted">Última actualización: 15 de octubre de 2026.</p>
+
+  <h3>Responsable</h3>
+  <p>Charcher, responsable del proyecto PokéBonk. Contacto: <a href="/cdn-cgi/l/email-protection#cfaca0a1bbaeacbba08fbfa0a4aaada0a1a4e1aca0a2"><span class="__cf_email__" data-cfemail="0f6c60617b6e6c7b604f7f60646a6d606164216c6062">[email&#160;protected]</span></a>.</p>
+
+  <h3>Qué datos tratamos</h3>
+  <ul>
+    <li><b>Tu cuenta:</b> el nombre de entrenador que eliges y tu contraseña. La contraseña nunca se guarda tal cual: solo se guarda una huella cifrada (scrypt) que no permite recuperarla.</li>
+    <li><b>Tu partida:</b> progreso, Pokémon desbloqueados, partidas jugadas y sus resultados, clan, mensajes del buzón del clan, fecha de alta y de última conexión.</li>
+    <li><b>Denuncias</b> que hagas a otros jugadores, con el motivo que escribas.</li>
+    <li><b>Reportes de fallos e ideas</b> que nos envíes desde el juego, con tu mensaje. Si reportas un fallo y dejas marcada la opción «Adjuntar datos técnicos», también la versión del juego, tu navegador y sistema operativo (el identificador que envía el navegador), el tamaño de la pantalla, la calidad gráfica, los datos de la partida en curso (Pokémon, región, zona, tiempo, bajas, nivel y fotogramas por segundo) y los últimos errores técnicos del juego. Solo se usan para arreglar el juego.</li>
+    <li><b>Dirección IP:</b> se usa solo en la memoria del servidor, durante unos minutos, para limitar el número de peticiones y frenar ataques. <b>No se guarda</b> en la base de datos.</li>
+  </ul>
+  <p><b>No pedimos</b> correo electrónico, nombre real, teléfono, ubicación ni datos de pago.</p>
+
+  <h3>Para qué y con qué base legal</h3>
+  <ul>
+    <li><b>Prestarte el servicio que pides al crear tu cuenta:</b> guardar tu progreso, la clasificación, los clanes y tu ficha de entrenador (art. 6.1.b del RGPD).</li>
+    <li><b>Atender los reportes que nos envías</b> y arreglar los fallos que nos cuentas (art. 6.1.b del RGPD).</li>
+    <li><b>Mantener el juego limpio y seguro:</b> sistemas automáticos que revisan las partidas para detectar trampas, suspensiones y límites de peticiones (interés legítimo, art. 6.1.f del RGPD).</li>
+  </ul>
+  <p><b>No hay</b> publicidad, analítica, perfiles comerciales ni decisiones automatizadas con efectos jurídicos. La detección de trampas solo puede sacarte de las clasificaciones, y cualquier suspensión se puede revisar escribiendo al contacto.</p>
+
+  <h3>Qué es público</h3>
+  <p>Tu nombre de entrenador, tu clan, tus puntuaciones en las clasificaciones y tu ficha de entrenador (<code>pokebonk.com/entrenador/&lt;nombre&gt;</code>) son visibles para cualquiera. <b>No uses tu nombre real como nombre de entrenador.</b></p>
+
+  <h3>Con quién se comparten</h3>
+  <p>No se venden ni se ceden datos a nadie. Solo intervienen, como proveedores técnicos:</p>
+  <ul>
+    <li><b>Hetzner Online GmbH:</b> alojamiento de los servidores, en centros de datos de la Unión Europea.</li>
+    <li><b>Cloudflare, Inc.:</b> entrega de la web. Procesa la IP de forma técnica para servir las páginas; tiene garantías de transferencia internacional (cláusulas contractuales tipo y el Marco de Privacidad de Datos UE-EE. UU.).</li>
+  </ul>
+  <p>Si sigues un enlace a Discord, se aplica la política de privacidad de Discord.</p>
+
+  <h3>Almacenamiento en tu navegador</h3>
+  <p>El juego usa el almacenamiento local del navegador (<i>localStorage</i>) para tu sesión, tus ajustes, la partida de invitado y las noticias que ya has leído. Es imprescindible para que el juego funcione. <b>No se usan cookies de seguimiento ni de terceros.</b></p>
+
+  <h3>Cuánto tiempo</h3>
+  <ul>
+    <li>Los datos de la cuenta se guardan mientras exista.</li>
+    <li>Las cuentas de invitado (sin nombre ni contraseña) se borran, con su progreso, tras 60 días sin usarse.</li>
+    <li>Las sesiones caducan tras 30 días sin uso.</li>
+    <li>El historial detallado de partidas y de Polvo Estelar se resume o se borra con el tiempo (de 7 a 90 días); tus récords, tu progreso y tus premios se mantienen.</li>
+    <li>Las copias de seguridad se borran a los 14 días.</li>
+    <li>Si pides borrar tu cuenta, se eliminan tu perfil, tus partidas, tus puntuaciones y los reportes que hayas enviado.</li>
+  </ul>
+
+  <h3>Tus derechos</h3>
+  <p>Puedes pedir el acceso, la rectificación, la supresión, la limitación, la portabilidad o la oposición escribiendo a <a href="/cdn-cgi/l/email-protection#e4878b8a908587908ba4948b8f81868b8a8fca878b89"><span class="__cf_email__" data-cfemail="d7b4b8b9a3b6b4a3b897a7b8bcb2b5b8b9bcf9b4b8ba">[email&#160;protected]</span></a> desde el nombre de tu cuenta.</p>
+  <p>Si crees que no se han atendido bien tus derechos, puedes reclamar ante la <a href="https://www.aepd.es" rel="noopener">Agencia Española de Protección de Datos</a>.</p>
+
+  <h3>Menores</h3>
+  <p>Si tienes menos de 14 años, necesitas el permiso de tu madre, padre o tutor para crear una cuenta.</p>
+</section>
+
+<section id="normas">
+  <h2>6. Normas de uso</h2>
+  <ul>
+    <li>Prohibidas las trampas: modificar el juego, automatizar partidas o manipular las comunicaciones con el servidor. Las partidas sospechosas se retiran de las clasificaciones y la cuenta puede suspenderse.</li>
+    <li>Nada de nombres de entrenador o de clan ofensivos, que suplanten a otra persona o que contengan datos personales. Se renombrarán o se suspenderá la cuenta.</li>
+    <li>El juego se ofrece tal cual, como proyecto aficionado: puede cambiar, reiniciar temporadas o cerrar en cualquier momento, sin que eso genere ningún derecho de compensación.</li>
+  </ul>
+</section>
+
+<section id="contacto">
+  <h2>7. Contacto</h2>
+  <ul>
+    <li>Retirada de contenido, privacidad o cualquier asunto legal: <a href="/cdn-cgi/l/email-protection#086b67667c696b7c67487867636d6a676663266b6765"><span class="__cf_email__" data-cfemail="84e7ebeaf0e5e7f0ebc4f4ebefe1e6ebeaefaae7ebe9">[email&#160;protected]</span></a>.</li>
+    <li>Comunidad y soporte: el <a href="https://discord.gg/X7KusQqx8X" rel="noopener">Discord de PokéBonk</a>.</li>
+  </ul>
+  <a class="back" href="/">Volver al juego</a>
+</section>
+
+</main>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
+</html>

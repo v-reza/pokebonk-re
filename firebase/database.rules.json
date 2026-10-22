@@ -1,0 +1,34 @@
+{
+  "rules": {
+    "rooms": {
+      "$room": {
+        ".read": "auth != null",
+        "host": {
+          ".write": "auth != null && !data.exists()"
+        },
+        "open": {
+          ".write": "auth != null && root.child('rooms').child($room).child('host').val() == auth.uid"
+        },
+        "at": {
+          ".write": "auth != null && root.child('rooms').child($room).child('host').val() == auth.uid"
+        },
+        "m": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid"
+          }
+        },
+        "q": {
+          "$to": {
+            ".write": "auth != null && root.child('rooms').child($room).child('m').hasChild(auth.uid)"
+          }
+        }
+      }
+    },
+    "runs": {
+      "$run": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
