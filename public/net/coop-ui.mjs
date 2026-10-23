@@ -640,10 +640,17 @@ async function joinSession(room) {
     uid: m.uid, name: m.name, dex: m.dex | 0, shiny: !!m.shiny,
   }));
   try {
-    await globalThis.__pbStartCoop({
-      room: room.code, host: room.host, uid: state.me.id,
-      members, seed: room.seed ?? null,
-    });
+    // `__pbStartCoop` lazily loads the Firebase compat SDK from the gstatic CDN
+    // and signs in anonymously. On a slow or blocked network that await can hang
+    // indefinitely, which used to wedge the guest before its run ever started.
+    // Bound it so the caller can reset and retry.
+    await Promise.race([
+      globalThis.__pbStartCoop({
+        room: room.code, host: room.host, uid: state.me.id,
+        members, seed: room.seed ?? null,
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('co-op session timed out')), 20000)),
+    ]);
     if (globalThis.__pbSetMembers) globalThis.__pbSetMembers(members);
     // The host opens the WebRTC peers for everyone in the room; this is what
     // turns 'Connecting…' into 'Connected' in the lobby cards.
@@ -793,10 +800,23 @@ async function poll() {
     // signaling session (with the host's seed) and start their own run.
     if (f.room && f.room.started && f.room.host !== state.me.id && !state.starting) {
       state.starting = true;
-      await joinSession(f.room);
-      const ok = await startLocalRun();
-      state.starting = false;
-      if (!ok) toast('Could not start run.', true);
+      try {
+        await joinSession(f.room);
+        const ok = await startLocalRun();
+        if (ok) {
+          // Leave `starting` set: the lobby closes once the run appears.
+          return;
+        }
+        state.starting = false;
+        toast('Could not start the run. Retrying…', true);
+      } catch (e) {
+        // Never leave `starting` latched: a hung Firebase/CDN load or a failed
+        // run start used to wedge the guest at "Waiting for host…" forever,
+        // because every later poll was skipped by the `!state.starting` guard.
+        state.starting = false;
+        console.warn('[coop] guest start failed', e);
+        toast('Could not join the run. Retrying…', true);
+      }
       return;
     }
     if (state.screen) render();

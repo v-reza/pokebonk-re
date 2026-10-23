@@ -510,16 +510,20 @@
           },
           levelStart(lv) {
             // Host: doLevelUp() already opens the card natively and the bundle
-            // hook broadcasts the 'lu' event. Guest: the bundle's own level-up
-            // path is inert (gainLevel/addXp early-return), so the card is opened
-            // here, on the host's 'lu'. The guest's card closes on the host's
-            // 'lr' (adapter `resume`), and picking calls coop.localPicked() from
-            // the patched DC.doLevelUp helper.
+            // hook broadcasts the 'lu' event.
+            //
+            // Guest: team XP and levels are owned by the host, and driving the
+            // bundle's card renderer on a guest throws
+            // "Invalid regular expression /\{(\w+)\}/g: Stack overflow" from the
+            // i18n replace inside showLevelUp(). That throw repeats every frame,
+            // the guest never calls localPicked(), so the host's `waiting` gate
+            // never opens and EVERY player freezes on the level-up screen.
+            // Acknowledge the level immediately instead: the host authors the
+            // choice for the team, the guest just opens the gate.
             const r = runOf();
             if (!r || !r.coop || r.coop.isHost) return;
-            if (r.state === 'over' || r.state === 'modal') return;
-            r.pendingLevels = Math.max(1, r.pendingLevels | 0);
-            try { r.doLevelUp(); } catch (e) { console.warn('[coop] level card', e); }
+            if (r.state === 'over') return;
+            try { r.coop.localPicked(); } catch (e) { console.warn('[coop] guest level ack', e); }
           },
           resume() {
             const r = runOf();
