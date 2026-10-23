@@ -177,6 +177,12 @@ After deploying to Vercel, verify full multiplayer connectivity across two separ
    - In Browser A (Host), click **Start**.
    - **Verification Success**: Both browsers transition into the arena and render two active Pokémon sprites (host and teammate puppet) moving and syncing in real time.
 
+### Troubleshooting: teammate invisible and HP stuck at 1 / 1
+- **Symptom**: In a deployed co-op run one player is effectively single-player (no party panel for them), while the other sees the teammate's HP row stuck at `1 / 1` and no puppet.
+- **Console signatures**: `Cannot read properties of undefined (reading 'INTERNAL')` from `firebase-database-compat.js`, or `firebase.database is not a function` / `firebase.auth is not a function` thrown from `net/signaling-firebase.mjs`.
+- **Cause**: The three Firebase compat scripts were requested in parallel, so `database`/`auth` could execute before `app`; `joinSession()` then swallowed the error and the run continued without a net session.
+- **Fix/current behavior**: `net/signaling-firebase.mjs` now loads app → database → auth sequentially, single-flight, and throws a named error if a namespace is missing. Redeploy (the client module is cached 5 min via `/net/*` `max-age=300`).
+
 ---
 
 ## 6. Pending Source-Tree Change: Localhost-Only Co-op Guard in `public/index.html`

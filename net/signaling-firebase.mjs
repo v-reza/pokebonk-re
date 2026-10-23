@@ -31,6 +31,7 @@ const COMPAT_SCRIPTS = [
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-database-compat.js`,
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth-compat.js`,
 ];
+let firebaseLoading = null;
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -38,19 +39,34 @@ function loadScript(src) {
     if (existing) return resolve();
     const s = document.createElement('script');
     s.src = src;
-    s.async = true;
+    s.async = false;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error(`[signaling-firebase] failed to load ${src}`));
     document.head.appendChild(s);
   });
 }
 
-// Load the three compat scripts (idempotent) and return the `firebase` global.
-async function ensureFirebase() {
-  if (globalThis.firebase) return globalThis.firebase;
-  await Promise.all(COMPAT_SCRIPTS.map(loadScript));
-  if (!globalThis.firebase) throw new Error('[signaling-firebase] firebase global missing after CDN load');
-  return globalThis.firebase;
+// Load the three compat scripts in strict dependency order (idempotent, single-flight).
+function ensureFirebase() {
+  if (globalThis.firebase && typeof globalThis.firebase.database === 'function' && typeof globalThis.firebase.auth === 'function') {
+    return Promise.resolve(globalThis.firebase);
+  }
+  if (!firebaseLoading) {
+    firebaseLoading = (async () => {
+      for (const src of COMPAT_SCRIPTS) {
+        await loadScript(src);
+      }
+      const fb = globalThis.firebase;
+      if (!fb) throw new Error('[signaling-firebase] firebase global missing after CDN load');
+      if (typeof fb.database !== 'function') throw new Error('[signaling-firebase] firebase.database namespace missing after CDN load');
+      if (typeof fb.auth !== 'function') throw new Error('[signaling-firebase] firebase.auth namespace missing after CDN load');
+      return fb;
+    })().catch((err) => {
+      firebaseLoading = null;
+      throw err;
+    });
+  }
+  return firebaseLoading;
 }
 
 /**
