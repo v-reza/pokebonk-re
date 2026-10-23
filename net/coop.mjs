@@ -82,7 +82,7 @@
 import * as Net from './net.mjs';
 
 // Message rates and culling (unchanged from the reference).
-export const NEAR = 90;                  // enemy radius (m) sent around each guest
+export const NEAR = 70;                  // enemy radius (m) sent around each guest (screen + margin)
 export const NEAR_HURT = 45;             // damage numbers only for guests this close (m)
 export const RATE_FAST = 1 / 15;         // 15 Hz direct
 export const RATE_SLOW = 1 / 3;          // 3 Hz relay fallback
@@ -226,8 +226,8 @@ export function buildGuestFrame(state, ev = [], sid) {
 }
 
 /** Host -> guest frame. */
-export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al }) {
-  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al };
+export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al, bs }) {
+  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al, bs };
 }
 
 /** Host -> all start message. */
@@ -409,7 +409,9 @@ export class Coop {
       ev, sg: st.stage, st: st.stageTime != null ? r2(st.stageTime) : undefined,
       mg: st.migrations, fl: st.floor, pk,
       // the host's allies around that guest (drawn there as mirrors)
-      al: g.allyList ? g.allyList(m) : undefined
+      al: g.allyList ? g.allyList(m) : undefined,
+      // the boss / mini-bosses the HUD shows bars for
+      bs: g.bossInfo ? g.bossInfo() : undefined
     });
   }
 
@@ -551,6 +553,7 @@ export class Coop {
     });
     if (msg.pk && this.game.syncPickups) this.game.syncPickups(msg.pk);
     if (this.game.syncAllies) this.game.syncAllies(Array.isArray(msg.al) ? msg.al : []);
+    if (this.game.syncBoss) this.game.syncBoss(msg.bs && typeof msg.bs === 'object' ? msg.bs : null);
     for (const u in msg.p || {}) {
       const m = this.mates.get(u);
       if (m) m.pl.net = readPlayerState(msg.p[u]);

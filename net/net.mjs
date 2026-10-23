@@ -315,14 +315,21 @@ function send(to, msg) {
   stats.sent++;
   if (p && p.dc && p.dc.readyState === 'open') {
     try {
-      const json = JSON.stringify(msg), jsonBytes = size(json);
+      // Binary was negotiated: send frames as binary without also building the
+      // JSON just to compare sizes (that doubled the cost of every frame; the
+      // JSON is only made if the frame cannot be encoded).
       const packed = p.binaryVersion === CODEC_VERSION && msg && msg.k === 'f'
         ? encode(msg) : null;
-      const binary = packed && packed.byteLength < jsonBytes;
-      p.dc.send(binary ? packed : json);
-      stats.sentBytes += binary ? packed.byteLength : jsonBytes;
+      if (packed) {
+        p.dc.send(packed);
+        stats.sentBytes += packed.byteLength;
+        stats.binarySent++;
+        return;
+      }
+      const json = JSON.stringify(msg), jsonBytes = size(json);
+      p.dc.send(json);
+      stats.sentBytes += jsonBytes;
       stats.jsonBytes += jsonBytes;
-      if (binary) stats.binarySent++;
       return;
     } catch (e) { /* falls through to relay */ }
   }

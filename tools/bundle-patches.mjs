@@ -64,7 +64,8 @@ export const BUNDLE_PATCHES = [
   // -- A5: drop the render-time interpolation (it now fights A4) ------------
   [
     'let a = Math.min(1, (now - s.t) / 66),\r\n     x = s.px + (s.x - s.px) * a,\r\n     z = s.pz + (s.z - s.pz) * a,',
-    'let x = s.x,\r\n     z = s.z,',
+    // __pbSyncPuppets already placed the puppet (smoothed, see index.html).
+    'let x = p.pos.x,\r\n     z = p.pos.z,',
   ],
 
   // -- A6: level-up card tells the session the local player chose ----------
@@ -245,6 +246,35 @@ export const BUNDLE_PATCHES = [
   [
     '     d.save(), d.translate(t, r), Dj(d, e, h * .85, n), d.restore()\r\n    } {\r\n     let [t, r] = m(e.player.pos.x, e.player.pos.z), i = h / 15',
     '     d.save(), d.translate(t, r), Dj(d, e, h * .85, n), d.restore()\r\n    } globalThis.__pbDrawBigMap && globalThis.__pbDrawBigMap(e, d, m, h); {\r\n     let [t, r] = m(e.player.pos.x, e.player.pos.z), i = h / 15',
+  ],
+
+  // -- C6: Unown/comet altars ("stay inside to charge") in co-op -----------
+  // Charging measured the distance to `run.player` only: on the host only the
+  // host could charge one, and on a guest it charged LOCALLY — horde waves of
+  // enemies nobody else had, a reward nobody else got. Now the host charges
+  // each altar from the nearest player (`__pbAltar` returns that distance), so
+  // a guest standing in it charges the host's altar and fights the host's
+  // waves; a guest only draws the charge ring the host reports. When it
+  // completes, `__pbAltarDone` hands every player the blessing.
+  [
+    '  altarUpdate(e, t, n) {\r\n   let r = this.run,',
+    '  altarUpdate(e, t, n) {\r\n'
+    + '   if (globalThis.__pbAltar && (t = globalThis.__pbAltar(this, e, t, n)) === !1) { (e.charge ?? 0) > 0 && !e.used && this.run.altarRing(e.x, e.y, e.z, e.r, e.charge, Vb[e.data?.tier ?? 0].color); return }\r\n'
+    + '   let r = this.run,',
+  ],
+  [
+    '  altarDone(e, t) {\r\n   let n = this.run,',
+    '  altarDone(e, t) {\r\n   globalThis.__pbAltarDone && globalThis.__pbAltarDone(this.run, e, Hb(t), Vb[t].min, Vb[t].offers, Vb[t].picks);\r\n   let n = this.run,',
+  ],
+
+  // -- C7: remote enemies keep moving between host frames -------------------
+  // They eased toward the LAST position the host sent and stopped there until
+  // the next one: at the relay's 3 frames/s (no direct connection) every enemy
+  // walked in jerks. The bridge records each row's velocity (`sd.netV`); here
+  // the target is extrapolated along it, for at most 0.35 s.
+  [
+    'coopRemoteUpdate(l, e) {\r\n   let b = l * 4, n = this.net, tx = n[b], tz = n[b + 1], k = Math.min(1, e * 14);',
+    'coopRemoteUpdate(l, e) {\r\n   let b = l * 4, n = this.net, _v = this.netV, _a = _v ? Math.min(.35, Math.max(0, (performance.now() - n[b + 3]) / 1e3)) : 0, tx = n[b] + (_v ? _v[l * 2] * _a : 0), tz = n[b + 1] + (_v ? _v[l * 2 + 1] * _a : 0), k = Math.min(1, e * 14);',
   ],
 
   // -- C1: the "own effects" context, so co-op can tell a player's own visuals

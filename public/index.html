@@ -431,6 +431,8 @@
 
       /** Wire row for one live host enemy, as the 'ne' event (see Coop.enemyAdded). */
       const r2 = v => Math.round(v * 100) / 100;
+      const NEAR_R = 70;                 // enemy radius sent around a guest (coop.mjs NEAR)
+      const dirOfXZ = (fx, fz) => (fx === 0 && fz === 0 ? 0 : ((Math.round((Math.atan2(fx, fz) + Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
       function enemyEvent(sd, i) {
         const f = sd.flags[i];
         return ['ne', i, sd.species[i], r2(sd.x[i]), r2(sd.z[i]), f & 4 ? 1 : 0, f & 2048 ? 1 : 0,
@@ -461,14 +463,58 @@
         }
       }
 
+      /**
+       * The same list as an array, built once per simulation step: the enemy and
+       * pickup loops ask for every enemy/gem on every frame, and a generator per
+       * call was garbage the GC had to sweep (late-run stutter).
+       */
+      function liveList(run) {
+        if (R.lpRun !== run || R.lpTime !== run.time) {
+          R.lpRun = run; R.lpTime = run.time;
+          const a = R.lpArr || (R.lpArr = []);
+          a.length = 0;
+          for (const p of livePlayers(run)) a.push(p);
+        }
+        return R.lpArr;
+      }
+
       /** Host: the living player nearest to (x, z); our own player if nobody stands. */
       globalThis.__pbCoopTarget = (run, x, z) => {
+        const list = liveList(run);
+        if (list.length < 2) return list[0] || run.player;
         let best = run.player, bd = Infinity;
-        for (const p of livePlayers(run)) {
-          const dx = p.pos.x - x, dz = p.pos.z - z, d = dx * dx + dz * dz;
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i], dx = p.pos.x - x, dz = p.pos.z - z, d = dx * dx + dz * dz;
           if (d < bd) { bd = d; best = p; }
         }
         return best;
+      };
+
+      /**
+       * Bundle patch C6 (altars that charge while you stand in them). Host: the
+       * charge follows the NEAREST player, so a guest charges it too; the host
+       * reports the charge to the guests a few times a second. Guest: never
+       * charges locally (false), it only draws the ring.
+       */
+      globalThis.__pbAltar = (store, e, dist, dt) => {
+        const run = store.run, coop = run && run.coop;
+        if (!coop || !coop.active) return dist;
+        if (!coop.isHost) return false;
+        let d = dist;
+        for (const p of liveList(run)) d = Math.min(d, Math.hypot(p.pos.x - e.x, p.pos.z - e.z));
+        const c = r2(e.charge || 0), now = performance.now();
+        if (c !== (e.__sentC ?? 0) && now - (e.__sentAt || 0) > 250) {
+          e.__sentC = c; e.__sentAt = now;
+          coop.emit(['ic', r2(e.x), r2(e.z), c]);
+        }
+        return d;
+      };
+      /** Host: an altar completed: every player gets the blessing. */
+      globalThis.__pbAltarDone = (run, e, name, min, offers, picks) => {
+        const coop = run.coop;
+        if (!coop || !coop.active || !coop.isHost) return;
+        coop.emit(['iu', e.kind, r2(e.x), r2(e.z)]);
+        coop.emit(['bless', String(name || '').slice(0, 60), min | 0, offers | 0, picks | 0]);
       };
 
       /** A projectile's fire() parameters, as a compact wire row and back. */
@@ -644,15 +690,17 @@
       function vfxOut(run, name, a) {
         const coop = run.coop;
         if (R.replaying || !coop || !coop.active || run !== R.run) return;
+        const own = !!(globalThis.__pbIc && globalThis.__pbIc.own);
+        if (!own && !(coop.isHost && VFX_HOSTILE.has(name))) return;
+        // Rate limit FIRST: in a big fight most calls are dropped, so do not
+        // format their arguments at all.
+        if (!bucket(own ? 'vxOwn' : 'vxHostile')) return;
         const args = a.map(x => (typeof x === 'number' && Number.isFinite(x) ? r2(x) : null));
         while (args.length && args[args.length - 1] == null) args.pop();
-        const own = !!(globalThis.__pbIc && globalThis.__pbIc.own);
         if (own) {
-          if (!bucket('vxOwn')) return;
           if (coop.isHost) coop.emitNear(['vx', name, args], a[0], a[2], null, 60);
           else if (coop.outEv.length < 200) coop.outEv.push(['vx', name, args]);
-        } else if (coop.isHost && VFX_HOSTILE.has(name)) {
-          if (!bucket('vxHostile')) return;
+        } else {
           const dmg = name === 'telegraph' ? telegraphDmg(run, a[0], a[2]) : 0;
           coop.emitNear(['vx', name, args, dmg], a[0], a[2], null, 60);
         }
@@ -746,6 +794,31 @@
           return o;
         });
       }
+      /** Guest: point the HUD's boss / mini-boss bars at our copies of the host's. */
+      function syncBoss(run, bs) {
+        if (!run || !run.boss) return;
+        const b = run.boss, sd = run.enemies;
+        const local = bs && Array.isArray(bs.b) ? localSlotOf(bs.b[0]) : null;
+        if (local != null && sd.alive[local]) {
+          b.bossIndex = local; b.bossGen = sd.gen[local];
+          b.name = String(bs.b[1] || ''); b.moveName = String(bs.b[2] || '');
+          b.moveT = num(bs.b[3], 0, 0, 60);   // (`immune` is a getter of the boss: not ours to set)
+        } else if (b.bossIndex >= 0) b.bossIndex = -1;
+        if (!run.minibosses) return;
+        const minis = [];
+        for (const a of (bs && Array.isArray(bs.m) ? bs.m : [])) {
+          const i = localSlotOf(a[0]);
+          if (i == null || !sd.alive[i]) continue;
+          const old = (run.minibosses.list || []).find(o => o.i === i && o.__mirror);
+          const o = old || { __mirror: true, minions: [] };
+          o.i = i; o.gen = sd.gen[i]; o.species = sd.species[i];
+          o.name = String(a[1] || ''); o.kind = String(a[2] || ''); o.moveName = String(a[3] || '');
+          o.moveT = num(a[4], 0, 0, 60); o.life = num(a[5], 0, 0, 1e4); o.minions.length = num(a[6], 0, 0, 99) | 0;
+          minis.push(o);
+        }
+        run.minibosses.list = minis;
+      }
+
       globalThis.__pbRenderMirrors = (run) => {
         const coop = run.coop;
         if (!coop || !coop.active || coop.isHost || !R.mirrors || !R.mirrors.length) return;
@@ -865,7 +938,20 @@
             const v = m && m.pl, n = v && v.net;
             const x = v && v.pos ? v.pos.x : n ? n.x : r.player.pos.x;
             const z = v && v.pos ? v.pos.z : n ? n.y : r.player.pos.z;
-            return serializeEnemyFrame(collectEnemySlots(r.enemies, x, z));
+            // Straight into wire rows (no intermediate objects: 300 enemies x 15 Hz
+            // x every guest was a lot of garbage).
+            const sd = r.enemies, out = [], r2n = NEAR_R * NEAR_R;
+            for (let i = 0; i < sd.n; i++) {
+              if (!sd.alive[i] || sd.dying[i] > 0) continue;
+              const dx = sd.x[i] - x, dz = sd.z[i] - z;
+              if (dx * dx + dz * dz > r2n) continue;
+              const fx = sd.fx[i], fz = sd.fz[i];
+              out.push([i, r2(sd.x[i]), r2(sd.z[i]), Math.ceil(sd.hp[i]),
+                sd.atkAnim[i] > 0 ? 1 : (sd.frozen[i] > 0 || sd.sleep[i] > 0) ? 2 : 0,
+                dirOfXZ(fx, fz),
+                (sd.burn[i] > 0 ? 1 : 0) | (sd.poison[i] > 0 ? 2 : 0) | (sd.shield[i] > 0 ? 4 : 0) | (sd.hazSlow[i] < 1 ? 8 : 0)]);
+            }
+            return out;
           },
           // host: every live enemy as 'ne', for a guest that has just come in
           enemySnapshot() {
@@ -896,6 +982,7 @@
             sd.maxHp[slot] = sd.hp[slot] = ev[7] || 1;
             const b = slot * 4;
             sd.net[b] = ev[3]; sd.net[b + 1] = ev[4]; sd.net[b + 2] = ev[7] || 1; sd.net[b + 3] = 0;
+            if (sd.netV) sd.netV[slot * 2] = sd.netV[slot * 2 + 1] = 0;
           },
           applyRemoteEnemy(a) {
             const r = runOf(); if (!r) return;
@@ -903,8 +990,14 @@
             // a[0] is a HOST slot; translate to the guest's local row.
             const local = r.coop ? r.coop.localSlotOf(a[0]) : a[0];
             if (local == null || !sd.alive[local]) return;
-            const b = local * 4;
-            sd.net[b] = a[1]; sd.net[b + 1] = a[2]; sd.net[b + 2] = a[3]; sd.net[b + 3] = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            const b = local * 4, now = performance.now();
+            const v = sd.netV || (sd.netV = new Float32Array(sd.remote.length * 2));
+            const dts = (now - sd.net[b + 3]) / 1000;
+            if (dts > 0.02 && dts < 1.5) {
+              v[local * 2] = Math.max(-15, Math.min(15, (a[1] - sd.net[b]) / dts));
+              v[local * 2 + 1] = Math.max(-15, Math.min(15, (a[2] - sd.net[b + 1]) / dts));
+            } else { v[local * 2] = v[local * 2 + 1] = 0; }
+            sd.net[b] = a[1]; sd.net[b + 1] = a[2]; sd.net[b + 2] = a[3]; sd.net[b + 3] = now;
             const anim = a[4], dir = a[5];
             sd.atkAnim[local] = anim === 1 ? 0.2 : 0;
             sd.dying[local] = anim === 3 ? 0.1 : 0;
@@ -1103,6 +1196,16 @@
           },
           syncPickups(rows) { syncPickups(runOf(), rows); },
           allyList(m) { const r = runOf(); return r ? allyList(r, m) : []; },
+          // host: the boss and mini-bosses whose HP bars the HUD shows
+          bossInfo() {
+            const r = runOf(); if (!r) return undefined;
+            const b = r.boss, sd = r.enemies, out = {};
+            if (b && b.alive) out.b = [b.bossIndex, String(b.name || '').slice(0, 40), String(b.moveName || '').slice(0, 40), r2(b.moveT || 0), b.immune ? 1 : 0];
+            const minis = ((r.minibosses && r.minibosses.list) || []).filter(a => a && sd.isAlive(a.i)).slice(0, 4);
+            if (minis.length) out.m = minis.map(a => [a.i, String(a.name || '').slice(0, 40), String(a.kind || ''), String(a.moveName || '').slice(0, 40), r2(a.moveT || 0), r2(a.life || 0), (a.minions || []).length]);
+            return out.b || out.m ? out : undefined;
+          },
+          syncBoss(bs) { syncBoss(runOf(), bs); },
           syncAllies(list) { syncAllies(list); },
           // host: everything else a guest sends
           guestEvent(m, ev) {
@@ -1127,6 +1230,16 @@
               case 'vx': vfxIn(r, ev[1], ev[2], num(ev[3], 0, 0, 1e6)); break;
               case 'iu': case 'i+': case 'i-': worldEvent(r, ev); break;
               case 'rb': restoreBuild(r, ev[1]); break;
+              case 'ic': {
+                const it = r.interactables && r.interactables.list.find(i => near(i, 'altar', ev[1], ev[2]));
+                if (it && !it.used) it.charge = num(ev[3], 0, 0, 1);
+                break;
+              }
+              case 'bless':
+                if (r.state !== 'over' && typeof r.offerBlessing === 'function') {
+                  try { r.offerBlessing(String(ev[1] || ''), ev[2] | 0, ev[3] | 0, ev[4] | 0); } catch (e) { console.warn('[coop] blessing', e); }
+                }
+                break;
             }
           },
           // host: a teammate that dropped is back in the run
@@ -1581,8 +1694,21 @@
           // `pos` is the TRUE wire position. Any visual separation is applied
           // at draw time by __pbDrawOffset (see server.mjs patch A8), never here:
           // mutating pos would corrupt interpolation and the net round-trip.
-          pl.pos.x = net.x;
-          pl.pos.z = net.y;
+          // Smooth: follow the latest frame, extrapolated along the teammate's
+          // velocity for a moment (3-15 frames/s would otherwise make it hop).
+          const now = performance.now(), dt = Math.min(0.1, run.realDt || 0.016);
+          if (pl._nx !== net.x || pl._nz !== net.y) {
+            const dts = (now - (pl._nAt || now)) / 1000;
+            pl._vx = dts > 0.02 && dts < 1.5 ? Math.max(-20, Math.min(20, (net.x - pl._nx) / dts)) : 0;
+            pl._vz = dts > 0.02 && dts < 1.5 ? Math.max(-20, Math.min(20, (net.y - pl._nz) / dts)) : 0;
+            pl._nx = net.x; pl._nz = net.y; pl._nAt = now;
+          }
+          const ahead = Math.min(0.3, (now - (pl._nAt || now)) / 1000);
+          const tx = net.x + (pl._vx || 0) * ahead, tz = net.y + (pl._vz || 0) * ahead;
+          const far = Math.abs(tx - pl.pos.x) + Math.abs(tz - pl.pos.z) > 8;    // teleport/respawn: snap
+          const k = far ? 1 : Math.min(1, dt * 15);
+          pl.pos.x += (tx - pl.pos.x) * k;
+          pl.pos.z += (tz - pl.pos.z) * k;
           pl.pos.y = run.terrain ? run.terrain.height(net.x, net.y) : pl.pos.y;
           pl.facing.x = Math.sin(net.angle);
           pl.facing.y = Math.cos(net.angle);
