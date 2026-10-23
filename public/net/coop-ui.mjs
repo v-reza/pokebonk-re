@@ -599,6 +599,13 @@ function lobbyScreen() {
   const hostName = (members.find((m) => m.uid === room.host) || {}).name || '…';
 
   loadNames();
+  const meEntry = members.find((m) => m.uid === me.id);
+  // Auto-open while choosing; afterwards the button toggles it. `state.picking`
+  // starts undefined, so an explicit open/close is honoured over the default.
+  const picking = state.picking == null ? !(meEntry && meEntry.ready) : !!state.picking;
+  // Built once and shown/hidden in place: re-rendering the whole lobby on a
+  // toggle made the popup (and the whole screen) blink.
+  let pickerEl = null;
   const cards = h('div', { class: 'pb-lob-members' });
   for (let i = 0; i < members.length + 1; i++) {
     const m = members[i];
@@ -614,13 +621,19 @@ function lobbyScreen() {
       if (mine) {
         // A player still choosing gets the picker opened for them on entry; their
         // button then focuses it instead of toggling a flag the render condition
-        // ignores (clicking used to change nothing at all).
+        // ignores (clicking used to change nothing at all). The picker is shown
+        // and hidden in place: a full render here made the whole lobby blink.
         c.append(h('button', {
           class: `btn small ${m.ready ? 'ghost' : 'green'}`,
           onclick: () => {
-            if (!m.ready) { state.picking = true; render(true); focusPicker(); return; }
+            if (!m.ready) {
+              state.picking = true;
+              if (pickerEl) pickerEl.hidden = false;
+              focusPicker();
+              return;
+            }
             state.picking = !(state.picking == null ? false : state.picking);
-            render(true);
+            if (pickerEl) pickerEl.hidden = !state.picking;
             if (state.picking) focusPicker();
           },
         }, m.ready ? 'Change' : 'Choose Pokémon'));
@@ -632,25 +645,20 @@ function lobbyScreen() {
   }
 
   // Your Pokémon for this room: the League roster, like the game's own picker.
-  let picker = null;
-  const meEntry = members.find((m) => m.uid === me.id);
-  // Auto-open while choosing; afterwards the button toggles it. `state.picking`
-  // starts undefined, so an explicit open/close is honoured over the default.
-  const picking = state.picking == null ? !(meEntry && meEntry.ready) : !!state.picking;
-  if (picking) {
-    const grid = h('div', { class: 'pb-pick-grid' });
-    const roster = myRoster();
-    if (!roster.length) grid.append(h('p', { class: 'muted', style: 'margin:0' }, 'Loading your Pokémon…'));
-    for (const id of roster) {
-      grid.append(h('button', {
-        class: `pb-pick${meEntry && meEntry.ready && meEntry.dex === id ? ' on' : ''}`, title: speciesName(id),
-        onclick: () => pickPokemon(id),
-      }, sprite(id, 'pix'), h('small', { translate: 'no' }, speciesName(id))));
-    }
-    picker = h('div', { class: 'panel cl-box', id: 'pb-coop-picker' },
-      h('div', { class: 'grp-head' }, h('b', {}, 'Choose your Pokémon'), h('small', {}, 'Each player picks their own')),
-      grid);
+  // Always in the DOM (hidden when closed) so the card button can toggle it
+  // without re-rendering the screen.
+  const grid = h('div', { class: 'pb-pick-grid' });
+  const roster = myRoster();
+  if (!roster.length) grid.append(h('p', { class: 'muted', style: 'margin:0' }, 'Loading your Pokémon…'));
+  for (const id of roster) {
+    grid.append(h('button', {
+      class: `pb-pick${meEntry && meEntry.ready && meEntry.dex === id ? ' on' : ''}`, title: speciesName(id),
+      onclick: () => pickPokemon(id),
+    }, sprite(id, 'pix'), h('small', { translate: 'no' }, speciesName(id))));
   }
+  const picker = pickerEl = h('div', { class: 'panel cl-box', id: 'pb-coop-picker', hidden: !picking },
+    h('div', { class: 'grp-head' }, h('b', {}, 'Choose your Pokémon'), h('small', {}, 'Each player picks their own')),
+    grid);
 
   // Host: where the run takes place (everyone plays the same world).
   let regionBox = null;
@@ -1304,6 +1312,7 @@ body:has(#ui>.screen[data-kind]) .tour{display:none!important}
 .pb-pick.on,.pb-pick:hover{border-color:#ffcb3d}
 @keyframes pb-pick-flash{0%{box-shadow:0 0 0 3px #ffcb3d,0 0 18px #ffcb3d88}100%{box-shadow:0 0 0 0 #ffcb3d00}}
 #pb-coop-picker.pb-flash{animation:pb-pick-flash .8s ease-out}
+#pb-coop-picker[hidden]{display:none!important}
 .pb-region{display:flex;gap:10px;flex-wrap:wrap}
 .pb-sel{min-width:180px}
 
@@ -1334,6 +1343,7 @@ globalThis.__pbCoopUI = {
   get room() { return state.room; },
   get friends() { return state.friends; },
   get screen() { return state.screen; },
+  get picking() { return state.picking; },
   refresh: poll,
   // Bridge -> UI: the host's `start`/`go` message. Only launch when this tab is
   // watching the lobby (or it was in that run and reloaded); otherwise offer it.
