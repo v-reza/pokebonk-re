@@ -110,11 +110,23 @@ In the run (host-authoritative, as in PokéSurvivor):
 - a teammate that goes silent for 10 s is dropped ("X left the run"); a guest
   that loses the host ends its run
 
-Known limits: boss scripted mechanics (telegraphs/arena attacks) and the
-host's allies still exist only on the host (bosses' contact damage and shots
-do reach guests); ghosts cover projectile moves, not melee/area visuals; world
-interactables (boss altars, shrines, challenges, nests, portals, tower) are
-host-only; a rejoining player starts again from its starter.
+- boss/elite mechanics: the host sends enemy telegraphs and big effects to
+  the guests near them; a guest standing in a telegraph when it lands is hit
+  (damage estimated from the strong enemy casting it)
+- each player's own move/item effects are replayed on its teammates (rings,
+  flashes, lightning, bursts — rate-limited) besides its projectile ghosts
+- the host's allies are mirrored on guests (and their shots as ghosts)
+- world objects (boss altars, shrines, challenges, nests, portals, tower):
+  a guest's use is run by the host; objects spawned during the run (exit
+  portal, reward chests…) and "used" state are mirrored to everyone
+- a player who rejoins gets its build back (species/evolution, moves with
+  their levels and upgrades, items, vitamins), sent to the host every 3 s
+- teammates show on the party panel, over their head (name + HP bar), on the
+  minimap and on the big map
+
+Known limits: a telegraph's damage on a guest is an estimate (the host's exact
+per-attack multiplier is not sent); effects drawn through raw particle spawns
+(not the vfx helpers) are not replayed; the host leaving ends the run.
 
 ## Languages
 

@@ -226,8 +226,8 @@ export function buildGuestFrame(state, ev = [], sid) {
 }
 
 /** Host -> guest frame. */
-export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk }) {
-  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk };
+export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al }) {
+  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk, al };
 }
 
 /** Host -> all start message. */
@@ -407,7 +407,9 @@ export class Coop {
       // Enemies around THAT guest (PokéSurvivor's viewOf(m)), not around the host.
       bo: st.bosses, co: st.coins, p, e: g.enemyList ? g.enemyList(m) : [],
       ev, sg: st.stage, st: st.stageTime != null ? r2(st.stageTime) : undefined,
-      mg: st.migrations, fl: st.floor, pk
+      mg: st.migrations, fl: st.floor, pk,
+      // the host's allies around that guest (drawn there as mirrors)
+      al: g.allyList ? g.allyList(m) : undefined
     });
   }
 
@@ -530,6 +532,8 @@ export class Coop {
           break;
         // It changed the team purse (shop, slots, rocks...).
         case 'gd': if (this.game.goldDelta) this.game.goldDelta(num(ev[1], 0, -1e7, 1e7)); break;
+        // Anything else (visuals, world interactions, its build): the adapter.
+        default: if (this.game.guestEvent) this.game.guestEvent(m, ev); break;
       }
     }
   }
@@ -546,6 +550,7 @@ export class Coop {
       migrations: msg.mg, floor: msg.fl
     });
     if (msg.pk && this.game.syncPickups) this.game.syncPickups(msg.pk);
+    if (this.game.syncAllies) this.game.syncAllies(Array.isArray(msg.al) ? msg.al : []);
     for (const u in msg.p || {}) {
       const m = this.mates.get(u);
       if (m) m.pl.net = readPlayerState(msg.p[u]);
@@ -583,6 +588,7 @@ export class Coop {
       case 'pf': { const m = this.mates.get(ev[1]); if (m && g.ghostFire) g.ghostFire(m.pl, ev[2]); break; }
       case 'heal': if (g.heal) g.heal(num(ev[1], 0, 0, 1)); break;
       case 'item': if (g.item && typeof ev[1] === 'string') g.item(ev[1].slice(0, 24)); break;
+      default: if (g.hostEvent) g.hostEvent(ev); break;
     }
   }
 

@@ -229,8 +229,46 @@ export const BUNDLE_PATCHES = [
   [
     'interact(e) {\r\n   let t = this.run;\r\n   if (!(e.used && e.kind !== `meowth`',
     'interact(e) {\r\n   let t = this.run;\r\n'
-    + '   if (t.coop && t.coop.active && !t.coop.isHost && /^(boss|shrine|portal|challenge|cursed|nest|tower)$/.test(e.kind)) { t.ui.toast(`Only the host can do that in co-op`, null), t.audio.deny(); return }\r\n'
+    + '   if (t.coop && t.coop.active && /^(boss|shrine|portal|challenge|cursed|nest|tower|greed)$/.test(e.kind)) {\r\n'
+    // C3: a guest's use of a world object is run by the host ('ia'); the host
+    // tells everyone when one is used up (`__pbIu`, after this call returns).
+    + '    if (!t.coop.isHost) { globalThis.__pbGuestInteract ? globalThis.__pbGuestInteract(t, e) : (t.ui.toast(`Only the host can do that in co-op`, null), t.audio.deny()); return }\r\n'
+    + '    globalThis.__pbIu && Promise.resolve().then(() => globalThis.__pbIu(t, e))\r\n'
+    + '   }\r\n'
     + '   if (!(e.used && e.kind !== `meowth`',
+  ],
+
+  // -- C5: teammates on the BIG map (M key / pause map) --------------------
+  // A9 only covered the minimap; the full map (`Ij`) drew enemies, markers and
+  // the local player but no teammate. `__pbDrawBigMap(run, ctx, project, size)`
+  // draws them just before our own arrow, with the same world->map projection.
+  [
+    '     d.save(), d.translate(t, r), Dj(d, e, h * .85, n), d.restore()\r\n    } {\r\n     let [t, r] = m(e.player.pos.x, e.player.pos.z), i = h / 15',
+    '     d.save(), d.translate(t, r), Dj(d, e, h * .85, n), d.restore()\r\n    } globalThis.__pbDrawBigMap && globalThis.__pbDrawBigMap(e, d, m, h); {\r\n     let [t, r] = m(e.player.pos.x, e.player.pos.z), i = h / 15',
+  ],
+
+  // -- C1: the "own effects" context, so co-op can tell a player's own visuals
+  // (moves, items: replayed on teammates) from the enemies' (boss mechanics).
+  [
+    'var Ic = {\r\n  on: !1,',
+    'var Ic = globalThis.__pbIc = {\r\n  on: !1,',
+  ],
+
+  // -- C2: draw the host's allies on guests (mirrors from the host frame) ---
+  [
+    'this.mewtwo.active || this.allies.render(), this.ult.render();',
+    'this.mewtwo.active || (this.allies.render(), globalThis.__pbRenderMirrors && globalThis.__pbRenderMirrors(this)), this.ult.render();',
+  ],
+
+  // -- C4: interactables spawned or removed DURING the run (exit portal, reward
+  // chests, comets...) exist only where they were made: the host mirrors them.
+  [
+    '  add(e, t, n, r = {}) {\r\n',
+    '  add(e, t, n, r = {}) {\r\n   globalThis.__pbIa && globalThis.__pbIa(this, e, t, n, r);\r\n',
+  ],
+  [
+    '  remove(e) {\r\n   this.list = this.list.filter(t => t !== e), e.group && this.group.remove(e.group)',
+    '  remove(e) {\r\n   globalThis.__pbIr && globalThis.__pbIr(this, e);\r\n   this.list = this.list.filter(t => t !== e), e.group && this.group.remove(e.group)',
   ],
 
   // -- B1: host enemies chase the NEAREST living player ---------------------

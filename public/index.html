@@ -277,6 +277,9 @@
         color: #fff;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
       }
+      .pb-name-tag .n { display: block; text-align: center; }
+      .pb-name-tag .hp { display: block; height: 4px; margin: 2px 0 1px; border-radius: 3px; background: rgba(0, 0, 0, 0.55); overflow: hidden; }
+      .pb-name-tag .hp b { display: block; height: 100%; width: 100%; border-radius: 3px; background: #5fe08a; }
       .pb-name-tag {
         position: fixed;
         pointer-events: none;
@@ -357,6 +360,8 @@
           this._run = v;
           this.holding = false;
           this.goldSeen = null; this.watch = null; this.pkMap = null; this.reviveP = 0; this.allDownT = 0;
+          this.mirrors = null; this.buildSent = null;
+          if (v) tapVfx(v);
           clearTimeout(this.holdTimer);
           if (v && this.pendingCoop) beginCoop(this.pendingCoop);
           if (!v) {
@@ -497,7 +502,7 @@
           if (coop.isHost && e.from != null && e.from >= 0) coop.shot(packProjectile(e), e.from, e.x, e.z);
           return;
         }
-        if (e.slot != null && e.slot >= 10) return;    // allies only exist on the host
+        if (e.slot != null && e.slot >= 10 && !coop.isHost) return;   // allies only exist on the host
         const now = performance.now();
         R.fireTokens = Math.min(FIRE_RATE, (R.fireTokens ?? FIRE_RATE) + (now - (R.fireAt || now)) / 1000 * FIRE_RATE);
         R.fireAt = now;
@@ -590,6 +595,223 @@
         }
         return w ? w.pos : p.pos;
       };
+
+      // ---------------------------------------------------------------------
+      // Visuals (bundle patch C1): each player's OWN effects (moves, items:
+      // `Ic.own`) are replayed on its teammates; the host also sends the
+      // enemies' big ones (boss telegraphs, rings, lightning, flashes) to the
+      // guests near them. A hostile telegraph carries the damage it stands for:
+      // when it lands, a guest standing in it takes the hit on its own screen.
+      // ---------------------------------------------------------------------
+      const VFX_TAP = ['ring', 'flash', 'lightning', 'telegraph', 'burst'];
+      const VFX_HOSTILE = new Set(['ring', 'flash', 'lightning', 'telegraph']);
+      const VFX_RATE = 30;               // per second, per kind (own / hostile)
+      const STRONG = 1 | 2 | 4 | 4096 | 8192 | 12288 | 16384;   // elite, miniboss, boss... flags
+
+      function bucket(key) {
+        const now = performance.now(), b = (R[key] ||= { n: VFX_RATE, at: now });
+        b.n = Math.min(VFX_RATE, b.n + (now - b.at) / 1000 * VFX_RATE); b.at = now;
+        if (b.n < 1) return false;
+        b.n--; return true;
+      }
+
+      /** Damage a hostile telegraph at (x, z) stands for: the strong enemy casting it. */
+      function telegraphDmg(run, x, z) {
+        const sd = run.enemies;
+        let best = -1, bd = 30 * 30;
+        for (let i = 0; i < sd.n; i++) {
+          if (!sd.alive[i] || sd.remote[i] || !(sd.flags[i] & STRONG)) continue;
+          const dx = sd.x[i] - x, dz = sd.z[i] - z, d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+        return best < 0 ? 0 : r2(sd.dmg[best] * run.diff.enemyDamage * 1.4);
+      }
+
+      function tapVfx(run) {
+        const v = run.vfx;
+        if (!v || v.__pbTapped) return;
+        v.__pbTapped = true;
+        for (const name of VFX_TAP) {
+          const orig = v[name];
+          if (typeof orig !== 'function') continue;
+          v[name] = function (...a) {
+            try { vfxOut(run, name, a); } catch (e) { /* never break the effect */ }
+            return orig.apply(this, a);
+          };
+        }
+      }
+
+      function vfxOut(run, name, a) {
+        const coop = run.coop;
+        if (R.replaying || !coop || !coop.active || run !== R.run) return;
+        const args = a.map(x => (typeof x === 'number' && Number.isFinite(x) ? r2(x) : null));
+        while (args.length && args[args.length - 1] == null) args.pop();
+        const own = !!(globalThis.__pbIc && globalThis.__pbIc.own);
+        if (own) {
+          if (!bucket('vxOwn')) return;
+          if (coop.isHost) coop.emitNear(['vx', name, args], a[0], a[2], null, 60);
+          else if (coop.outEv.length < 200) coop.outEv.push(['vx', name, args]);
+        } else if (coop.isHost && VFX_HOSTILE.has(name)) {
+          if (!bucket('vxHostile')) return;
+          const dmg = name === 'telegraph' ? telegraphDmg(run, a[0], a[2]) : 0;
+          coop.emitNear(['vx', name, args, dmg], a[0], a[2], null, 60);
+        }
+      }
+
+      function vfxIn(run, name, args, dmg) {
+        if (!VFX_TAP.includes(name) || !Array.isArray(args) || args.length > 12) return;
+        const a = args.map(x => (typeof x === 'number' && Number.isFinite(x) ? x : undefined));
+        if (a[0] == null || a[2] == null) return;
+        R.replaying = true;
+        try { run.vfx[name](...a); } catch (e) { /* bad args: skip */ } finally { R.replaying = false; }
+        // A hostile area: where it lands, a guest inside it is hit.
+        if (name === 'telegraph' && dmg > 0) {
+          const x = a[0], z = a[2], rad = a[3] || 2, life = Math.min(4, a[5] || 0.8);
+          run.later(life, () => {
+            const p = run.player;
+            if (!p || p.dead || R.run !== run) return;
+            const dx = p.pos.x - x, dz = p.pos.z - z;
+            if (dx * dx + dz * dz < rad * rad) p.hurt(Math.min(dmg, p.maxHp * 0.6), 'normal', -1, x, z, !1, 0, -1, {});
+          });
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // World objects (bundle patches A18/C3/C4): the host runs them and keeps
+      // everyone's copy in step.
+      // ---------------------------------------------------------------------
+      const WORLD = /^(boss|shrine|portal|challenge|cursed|nest|tower|greed|altar)$/;
+      const near = (it, kind, x, z, d = 1.5) => it.kind === kind && Math.abs(it.x - x) < d && Math.abs(it.z - z) < d;
+
+      globalThis.__pbGuestInteract = (run, e) => {
+        const now = performance.now();
+        if (e.__askedAt && now - e.__askedAt < 1500) return;
+        e.__askedAt = now;
+        run.coop.toHost(['ia', e.kind, r2(e.x), r2(e.z)]);
+      };
+      globalThis.__pbIu = (run, e) => {
+        const coop = run.coop;
+        if (coop && coop.isHost && e.used) coop.emit(['iu', e.kind, r2(e.x), r2(e.z)]);
+      };
+      globalThis.__pbIa = (store, kind, x, z, opts) => {
+        const run = store.run, coop = run && run.coop;
+        if (R.iaReplaying || !coop || !coop.isHost || run.state === 'transition' || typeof kind !== 'string') return;   // zone (re)builds are seeded: no mirror
+        let o = {};
+        try { const j = JSON.stringify(opts || {}); if (j.length < 3000) o = JSON.parse(j); } catch (e) { o = {}; }
+        coop.emit(['i+', kind, r2(x), r2(z), o]);
+      };
+      globalThis.__pbIr = (store, e) => {
+        const run = store.run, coop = run && run.coop;
+        if (R.iaReplaying || !coop || !coop.isHost || !WORLD.test(e.kind)) return;
+        coop.emit(['i-', e.kind, r2(e.x), r2(e.z)]);
+      };
+
+      function worldEvent(run, ev) {
+        const ia = run.interactables, [k, kind, x, z] = ev;
+        if (!ia || typeof kind !== 'string') return;
+        const it = ia.list.find(i => near(i, kind, x, z));
+        if (k === 'iu') {
+          if (it && !it.used) { it.used = true; try { ia.dim(it); } catch (e) { /* no glow */ } }
+        } else if (k === 'i-') {
+          if (it) { R.iaReplaying = true; try { ia.remove(it); } finally { R.iaReplaying = false; } }
+        } else if (k === 'i+') {
+          if (ia.list.some(i => near(i, kind, x, z, 0.7))) return;
+          R.iaReplaying = true;
+          try {
+            const made = ia.add(kind, x, z, ev[4] && typeof ev[4] === 'object' ? ev[4] : {});
+            if (made && kind === 'portal') { made.data ||= {}; made.data.openT ??= 0; }
+          } catch (e) { console.warn('[coop] world object', kind, e); } finally { R.iaReplaying = false; }
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // The host's allies, mirrored on guests (bundle patch C2).
+      // ---------------------------------------------------------------------
+      function allyList(run, m) {
+        const v = m && m.pl, px = v && v.pos ? v.pos.x : 0, pz = v && v.pos ? v.pos.z : 0, out = [];
+        for (const a of (run.allies && run.allies.list) || []) {
+          if (!a || !Number.isFinite(a.x) || out.length >= 8) continue;
+          if ((a.x - px) ** 2 + (a.z - pz) ** 2 > 80 * 80) continue;
+          const walk = a.hop > 0 || Math.hypot(a.x - run.player.pos.x, a.z - run.player.pos.z) > 3;
+          out.push([a.species | 0, r2(a.x), r2(a.z), r2(a.fx || 0), r2(a.fz || 1), walk ? 1 : 0]);
+        }
+        return out;
+      }
+      function syncAllies(list) {
+        const old = R.mirrors || [];
+        R.mirrors = list.filter(Array.isArray).slice(0, 8).map((a, i) => {
+          const o = old[i] && old[i].sp === a[0] ? old[i] : { sp: a[0] | 0, x: num(a[1], 0, -1e5, 1e5), z: num(a[2], 0, -1e5, 1e5), anim: 0 };
+          o.tx = num(a[1], 0, -1e5, 1e5); o.tz = num(a[2], 0, -1e5, 1e5);
+          o.fx = num(a[3], 0, -1, 1); o.fz = num(a[4], 1, -1, 1); o.walk = !!a[5];
+          return o;
+        });
+      }
+      globalThis.__pbRenderMirrors = (run) => {
+        const coop = run.coop;
+        if (!coop || !coop.active || coop.isHost || !R.mirrors || !R.mirrors.length) return;
+        const t = run.sprites, dt = Math.min(0.1, run.realDt || 0.016), k = Math.min(1, dt * 12);
+        for (const a of R.mirrors) {
+          a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k;
+          a.anim += dt * (a.walk ? 0.8 : 0.6);
+          const y = run.terrain.surface(a.x, a.z), s = t.get(a.sp);
+          if (!s) continue;
+          s.push(a.x, y, a.z, a.walk ? 'walk' : 'idle', a.anim, t.dirRow(a.fx, a.fz), 1.15, 0, 0, 0, 0, 1, 1, 1, 0, !1);
+          t.shadows.push(a.x, y, a.z, 1.3);
+        }
+      };
+
+      // ---------------------------------------------------------------------
+      // Rejoin keeps your build: a guest sends it to the host every few
+      // seconds; when it comes back (new session), the host hands it back.
+      // ---------------------------------------------------------------------
+      function buildOf(p) {
+        return {
+          sp: p.speciesId | 0, evo: p.evoStage | 0, slots: p.moveSlots | 0,
+          mv: p.moves.map(m => (m && m.def ? [m.def.id, m.level | 0, { ...m.mods }, [...(m.parents || [])]] : null)),
+          it: [...p.items].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)),
+          vit: [...(p.vitamins || [])].map(([k, v]) => [k, v.level | 0, +v.acc || 0]),
+          rv: p.revives | 0,
+        };
+      }
+      function sendBuild(run) {
+        const coop = run.coop, now = performance.now();
+        if (coop.isHost || run.state === 'transition' || run.state === 'over' || now - (R.buildAt || 0) < 3000) return;
+        R.buildAt = now;
+        const b = buildOf(run.player), j = JSON.stringify(b);
+        if (j === R.buildSent || j.length > 20000) return;
+        R.buildSent = j;
+        coop.toHost(['bd', b]);
+      }
+      function restoreBuild(run, b) {
+        if (!b || typeof b !== 'object' || R.restoredRun === run) return;
+        R.restoredRun = run;
+        const p = run.player;
+        try {
+          if (b.sp > 0 && b.sp !== p.speciesId) p.setSpecies(b.sp);
+          if (Number.isInteger(b.evo)) p.evoStage = b.evo;
+          if (b.slots > p.moveSlots) p.moveSlots = b.slots;
+          if (Array.isArray(b.mv)) {
+            for (let i = 0; i < p.moves.length; i++) p.moves[i] = null;
+            b.mv.forEach((m, i) => {
+              if (!Array.isArray(m) || i >= p.moves.length) return;
+              if (!p.addMove(m[0])) return;
+              const at = p.moves.findIndex((x, k) => x && x.def.id === m[0] && !x.__restored);
+              const slot = p.moves[at];
+              if (at !== i) { p.moves[at] = p.moves[i]; p.moves[i] = slot; }
+              slot.__restored = true;
+              slot.level = Math.max(1, m[1] | 0);
+              if (m[2] && typeof m[2] === 'object') Object.assign(slot.mods, m[2]);
+              if (Array.isArray(m[3])) slot.parents = m[3].slice(0, 8);
+            });
+          }
+          if (Array.isArray(b.it)) { p.items.clear(); for (const [k, v] of b.it) if (typeof k === 'string') p.items.set(k, num(v, 1, 1, 99)); }
+          if (Array.isArray(b.vit) && p.vitamins) { p.vitamins.clear(); for (const [k, l, a] of b.vit) if (typeof k === 'string') p.vitamins.set(k, { level: num(l, 1, 1, 99), acc: num(a, 0, 0, 1e9) }); }
+          p.revives = num(b.rv, p.revives | 0, 0, 99);
+          p.recompute();
+          p.hp = p.maxHp;
+          if (run.ui) run.ui.toast('Welcome back! Your Pokémon, moves and items are restored', null);
+        } catch (e) { console.warn('[coop] restore build', e); }
+      }
 
       /** Every frame: revive progress, and (host) the end once all are down. */
       function tickDowned(run) {
@@ -880,11 +1102,39 @@
             return out;
           },
           syncPickups(rows) { syncPickups(runOf(), rows); },
+          allyList(m) { const r = runOf(); return r ? allyList(r, m) : []; },
+          syncAllies(list) { syncAllies(list); },
+          // host: everything else a guest sends
+          guestEvent(m, ev) {
+            const r = runOf(); if (!r) return;
+            switch (ev[0]) {
+              case 'vx':
+                vfxIn(r, ev[1], ev[2], 0);
+                if (Array.isArray(ev[2])) r.coop.emitNear(['vx', ev[1], ev[2]], ev[2][0], ev[2][2], m.uid, 60);
+                break;
+              case 'ia': {
+                const it = r.interactables && r.interactables.list.find(i => near(i, ev[1], ev[2], ev[3], 2));
+                if (it) r.interactables.interact(it);
+                break;
+              }
+              case 'bd': if (ev[1] && typeof ev[1] === 'object') m.build = ev[1]; break;
+            }
+          },
+          // guest: everything else the host sends
+          hostEvent(ev) {
+            const r = runOf(); if (!r) return;
+            switch (ev[0]) {
+              case 'vx': vfxIn(r, ev[1], ev[2], num(ev[3], 0, 0, 1e6)); break;
+              case 'iu': case 'i+': case 'i-': worldEvent(r, ev); break;
+              case 'rb': restoreBuild(r, ev[1]); break;
+            }
+          },
           // host: a teammate that dropped is back in the run
           mateBack(m) {
             const r = runOf(); if (!r) return;
             buildPuppets(r);
             hideDcBanner();
+            if (m.build) r.coop.toMate(m.uid, ['rb', m.build]);
             if (r.ui) r.ui.toast(`${m.name || 'A teammate'} is back`, null);
           },
           // `Coop.onHostFrame` closes the local card whenever a frame arrives with
@@ -1134,7 +1384,13 @@
           return;
         }
         if (!partyPanelEl || !partyPanelEl.isConnected) {
+          // A new run builds a new HUD: the old panel (and its rows) went with
+          // the old one. The cached rows pointed at it, so the new panel stayed
+          // empty — the teammates' health bars were "sometimes" missing.
+          for (const r of partyRows.values()) r.el.remove();
+          partyRows.clear();
           partyPanelEl = document.getElementById('pb-party-panel');
+          if (partyPanelEl && !partyPanelEl.isConnected) partyPanelEl = null;
           if (!partyPanelEl) {
             partyPanelEl = document.createElement('div');
             partyPanelEl.id = 'pb-party-panel';
@@ -1338,6 +1594,7 @@
           if (net.reviveT != null) pl.reviveT = net.reviveT;
         }
         tickDowned(run);
+        if (!coop.isHost) sendBuild(run);
         // Host: (re)open a peer for every member, so a teammate that dropped
         // and came back is reachable again (net.mjs only connects missing ones).
         if (coop.isHost && Net.isOpen() && performance.now() - (R.peerSyncAt || 0) > 3000) {
@@ -1359,12 +1616,14 @@
         }
         let tag = pl._tagEl;
         if (!tag) {
+          // Name + a small HP bar over the teammate's head.
           tag = document.createElement('div');
           tag.className = 'pb-name-tag';
-          const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
-          parent.append(tag);
+          tag.innerHTML = '<span class="n"></span><i class="hp"><b></b></i>';
           pl._tagEl = tag;
         }
+        // The HUD is rebuilt for every run: an orphaned tag was never seen again.
+        if (!tag.isConnected) ((run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body).append(tag);
         const wx = pl.pos.x + dx;
         const wy = (pl.pos.y || 0) + 1.8;
         const wz = pl.pos.z + dz;
@@ -1382,8 +1641,16 @@
         const name = pl.tag || pl.name || 'Teammate';
         const text = isDead ? `💀 ${name}` : name;
         if (tag._text !== text) {
-          tag.textContent = text;
+          tag.firstChild.textContent = text;
           tag._text = text;
+        }
+        const pct = isDead ? 0 : Math.max(0, Math.min(1, (pl.hp || 0) / Math.max(1, pl.maxHp || 1)));
+        const w = Math.round(pct * 100);
+        if (tag._w !== w) {
+          const bar = tag.lastChild.firstChild;
+          bar.style.width = `${w}%`;
+          bar.style.background = pct < 0.25 ? '#ff4a5a' : pct < 0.5 ? '#ffcb3d' : '#5fe08a';
+          tag._w = w;
         }
       }
 
@@ -1475,6 +1742,60 @@
         }
       }
       globalThis.__pbDrawMinimap = drawMinimap;
+
+      /**
+       * Teammates on the big map (bundle patch C5): a disc in their colour with
+       * their Pokémon's icon and their name; a downed teammate is greyed and
+       * crossed. `proj(x, z)` is the map's own world->canvas projection and
+       * `size` its marker size.
+       */
+      const ICONS = new Map();
+      function iconOf(dex) {
+        let img = ICONS.get(dex);
+        if (!img) { img = new Image(); img.src = `/assets/icons/${dex}.png`; ICONS.set(dex, img); }
+        return img.complete && img.naturalWidth ? img : null;
+      }
+      function drawBigMap(run, ctx, proj, size) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) return;
+        const rad = Math.max(10, size * 0.95);
+        for (const m of coop.mates.values()) {
+          const pl = m.pl;
+          if (!m.connected || !pl || !pl.pos) continue;
+          const [x, y] = proj(pl.pos.x, pl.pos.z);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          const dead = !!(pl.dead || (pl.net && pl.net.dead));
+          const color = m.color || '#5fc8ff';
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.globalAlpha = dead ? 0.55 : 1;
+          ctx.fillStyle = '#1d1236';
+          ctx.beginPath(); ctx.arc(0, 0, rad + 3, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = dead ? '#6b6680' : color;
+          ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.fill();
+          const img = iconOf(pl.speciesId || m.dex || 1);
+          if (img) {
+            const s = rad * 1.7;
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, -s / 2, -s / 2, s * (img.naturalWidth / img.naturalHeight), s);
+          }
+          if (dead) {
+            ctx.strokeStyle = '#ff4a5a'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(-rad * .6, -rad * .6); ctx.lineTo(rad * .6, rad * .6);
+            ctx.moveTo(rad * .6, -rad * .6); ctx.lineTo(-rad * .6, rad * .6); ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          const name = m.name || 'Teammate';
+          ctx.font = `800 ${Math.max(11, Math.round(rad * 0.75))}px system-ui, sans-serif`;
+          const w = ctx.measureText(name).width + 12, hgt = Math.max(16, rad * 1.05);
+          ctx.fillStyle = '#1d1236';
+          ctx.beginPath(); ctx.roundRect(-w / 2, -rad - hgt - 4, w, hgt, hgt / 2); ctx.fill();
+          ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(name, 0, -rad - hgt / 2 - 4);
+          ctx.restore();
+        }
+      }
+      globalThis.__pbDrawBigMap = drawBigMap;
 
       /**
        * Guest slot mapping. The guest's `Sd` allocates its own local slots for
