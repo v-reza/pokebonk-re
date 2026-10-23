@@ -51,9 +51,14 @@ export default async function handler(req, res) {
   const proto = req.headers['x-forwarded-proto'] || 'https';
   const url = new URL(req.url, `${proto}://${host}`);
 
-  // Normalize path: strip leading /api prefix if present
+  // Vercel rewrites /api/* to this function as /api/[...path]?path=<rest>.
+  // When that happens, reconstruct the route from the `path` parameter;
+  // otherwise use the incoming pathname (local server / direct invocation).
   let apiPath = url.pathname;
-  if (apiPath.startsWith('/api/')) {
+  const rewritten = url.searchParams.get('path');
+  if (rewritten != null && (apiPath === '/api/[...path]' || apiPath === '/api/%5B...path%5D')) {
+    apiPath = '/' + rewritten.replace(/^\/+/, '');
+  } else if (apiPath.startsWith('/api/')) {
     apiPath = apiPath.slice(4) || '/';
   } else if (apiPath === '/api') {
     apiPath = '/';

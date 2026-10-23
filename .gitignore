@@ -13,3 +13,5 @@ firebase-debug.log
 .playwright-mcp/
 
 node_modules/
+.vercel
+.env*

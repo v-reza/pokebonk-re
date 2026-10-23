@@ -3,10 +3,13 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-    "api/[...path].mjs": {
+    "api/[...path].js": {
       "includeFiles": "firebase/**"
     }
   },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/[...path]" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
