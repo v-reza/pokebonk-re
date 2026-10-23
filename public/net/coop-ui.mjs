@@ -367,6 +367,19 @@ function render(force) {
   }
 }
 
+/** Bring the Pokémon picker into view and flash it, so a click on the
+ *  "Choose Pokémon" button always produces a visible response. */
+function focusPicker() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('pb-coop-picker');
+    if (!el) return;
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    el.classList.remove('pb-flash');
+    void el.offsetWidth;            // restart the animation
+    el.classList.add('pb-flash');
+  });
+}
+
 function head(title, sub, back) {
   return h('div', { class: 'scr-head' },
     h('button', { class: 'back-btn', onclick: back }, 'Back'),
@@ -599,8 +612,18 @@ function lobbyScreen() {
         h('small', { class: 'muted' }, m.ready ? speciesName(m.dex) : 'Choosing a Pokémon…'),
         h('span', { class: `conn${conn === 'Connecting…' ? ' wait' : ''}` }, conn));
       if (mine) {
-        c.append(h('button', { class: `btn small ${m.ready ? 'ghost' : 'green'}`, onclick: () => { state.picking = !state.picking; render(true); } },
-          m.ready ? 'Change' : 'Choose Pokémon'));
+        // A player still choosing gets the picker opened for them on entry; their
+        // button then focuses it instead of toggling a flag the render condition
+        // ignores (clicking used to change nothing at all).
+        c.append(h('button', {
+          class: `btn small ${m.ready ? 'ghost' : 'green'}`,
+          onclick: () => {
+            if (!m.ready) { state.picking = true; render(true); focusPicker(); return; }
+            state.picking = !(state.picking == null ? false : state.picking);
+            render(true);
+            if (state.picking) focusPicker();
+          },
+        }, m.ready ? 'Change' : 'Choose Pokémon'));
       }
     } else {
       c.append(h('span', { class: 'muted' }, 'Open'));
@@ -611,7 +634,10 @@ function lobbyScreen() {
   // Your Pokémon for this room: the League roster, like the game's own picker.
   let picker = null;
   const meEntry = members.find((m) => m.uid === me.id);
-  if (state.picking || (meEntry && !meEntry.ready)) {
+  // Auto-open while choosing; afterwards the button toggles it. `state.picking`
+  // starts undefined, so an explicit open/close is honoured over the default.
+  const picking = state.picking == null ? !(meEntry && meEntry.ready) : !!state.picking;
+  if (picking) {
     const grid = h('div', { class: 'pb-pick-grid' });
     const roster = myRoster();
     if (!roster.length) grid.append(h('p', { class: 'muted', style: 'margin:0' }, 'Loading your Pokémon…'));
@@ -621,7 +647,7 @@ function lobbyScreen() {
         onclick: () => pickPokemon(id),
       }, sprite(id, 'pix'), h('small', { translate: 'no' }, speciesName(id))));
     }
-    picker = h('div', { class: 'panel cl-box' },
+    picker = h('div', { class: 'panel cl-box', id: 'pb-coop-picker' },
       h('div', { class: 'grp-head' }, h('b', {}, 'Choose your Pokémon'), h('small', {}, 'Each player picks their own')),
       grid);
   }
@@ -808,7 +834,7 @@ async function pickPokemon(dex) {
   try {
     const r = await api('POST', `/rooms/${room.code}/pick`, { dex, shiny });
     state.room = r.room;
-    state.picking = false;
+    state.picking = null;          // back to the default (hidden once ready)
     // The game's own screens default to this one too.
     if (meta && meta.profile) { meta.profile.lastSpecies = dex; try { meta.save(); } catch { /* offline */ } }
   } catch (e) { toast(e.message, true); }
@@ -1276,6 +1302,8 @@ body:has(#ui>.screen[data-kind]) .tour{display:none!important}
 .pb-pick img{width:48px;height:48px}
 .pb-pick small{font-size:11px;font-weight:800;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pb-pick.on,.pb-pick:hover{border-color:#ffcb3d}
+@keyframes pb-pick-flash{0%{box-shadow:0 0 0 3px #ffcb3d,0 0 18px #ffcb3d88}100%{box-shadow:0 0 0 0 #ffcb3d00}}
+#pb-coop-picker.pb-flash{animation:pb-pick-flash .8s ease-out}
 .pb-region{display:flex;gap:10px;flex-wrap:wrap}
 .pb-sel{min-width:180px}
 
