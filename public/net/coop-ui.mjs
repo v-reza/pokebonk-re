@@ -100,7 +100,10 @@ function readSession() {
 
 function sessionChanged() {
   const s = readSession();
-  const changed = (s && s.id) !== (state.me && state.me.id);
+  // Only a switch from one account to ANOTHER resets the co-op state. This
+  // module loads before the player signs in, so the first sign-in used to count
+  // as a change and wiped the room a just-accepted invite had put us in.
+  const changed = !!state.me && (s && s.id) !== state.me.id;
   state.token = s ? s.token : null;
   state.me = s ? { id: s.id, name: s.name, guest: !!s.guest } : null;
   if (changed) {
@@ -506,21 +509,60 @@ function lobbyScreen() {
   const members = room.members || [];
   const hostName = (members.find((m) => m.uid === room.host) || {}).name || '…';
 
+  loadNames();
   const cards = h('div', { class: 'pb-lob-members' });
   for (let i = 0; i < members.length + 1; i++) {
     const m = members[i];
-    const c = h('div', { class: `pb-lob-card${m ? '' : ' empty'}` });
+    const c = h('div', { class: `pb-lob-card${m ? '' : ' empty'}${m && !m.ready ? ' choosing' : ''}` });
     if (m) {
       const conn = connText(m, room);
+      const mine = m.uid === me.id;
       c.append(
-        sprite(m.dex || 1, 'pix pb-lob-spr'),
+        m.ready ? sprite(m.dex || 1, 'pix pb-lob-spr') : h('div', { class: 'pb-lob-q' }, '?'),
         h('b', { translate: 'no' }, m.name),
-        h('small', { class: 'muted' }, speciesName(m.dex)),
+        h('small', { class: 'muted' }, m.ready ? speciesName(m.dex) : 'Choosing a Pokémon…'),
         h('span', { class: `conn${conn === 'Connecting…' ? ' wait' : ''}` }, conn));
+      if (mine) {
+        c.append(h('button', { class: `btn small ${m.ready ? 'ghost' : 'green'}`, onclick: () => { state.picking = !state.picking; render(true); } },
+          m.ready ? 'Change' : 'Choose Pokémon'));
+      }
     } else {
       c.append(h('span', { class: 'muted' }, 'Open'));
     }
     cards.append(c);
+  }
+
+  // Your Pokémon for this room: the League roster, like the game's own picker.
+  let picker = null;
+  const meEntry = members.find((m) => m.uid === me.id);
+  if (state.picking || (meEntry && !meEntry.ready)) {
+    const grid = h('div', { class: 'pb-pick-grid' });
+    const roster = myRoster();
+    if (!roster.length) grid.append(h('p', { class: 'muted', style: 'margin:0' }, 'Loading your Pokémon…'));
+    for (const id of roster) {
+      grid.append(h('button', {
+        class: `pb-pick${meEntry && meEntry.ready && meEntry.dex === id ? ' on' : ''}`, title: speciesName(id),
+        onclick: () => pickPokemon(id),
+      }, sprite(id, 'pix'), h('small', { translate: 'no' }, speciesName(id))));
+    }
+    picker = h('div', { class: 'panel cl-box' },
+      h('div', { class: 'grp-head' }, h('b', {}, 'Choose your Pokémon'), h('small', {}, 'Each player picks their own')),
+      grid);
+  }
+
+  // Host: where the run takes place (everyone plays the same world).
+  let regionBox = null;
+  if (isHost) {
+    const c = runChoice();
+    const regions = myRegions();
+    const sel = h('select', { class: 'field pb-sel', onchange: (e) => { c.biome = e.target.value; render(true); } },
+      ...regions.map((r) => h('option', { value: r.id, selected: r.id === c.biome }, regionName(r.id))));
+    const max = (regions.find((r) => r.id === c.biome) || { max: 0 }).max;
+    const tier = h('select', { class: 'field pb-sel', onchange: (e) => { c.tier = Number(e.target.value) | 0; render(true); } },
+      ...Array.from({ length: max + 1 }, (_, t) => h('option', { value: String(t), selected: t === c.tier }, `Difficulty ${t + 1}`)));
+    regionBox = h('div', { class: 'panel cl-box' },
+      h('div', { class: 'grp-head' }, h('b', {}, 'Region'), h('small', {}, 'Host only')),
+      h('div', { class: 'pb-region' }, sel, tier));
   }
 
   // Host-only: invite friends who are not in the room yet.
@@ -560,12 +602,14 @@ function lobbyScreen() {
 
   const connecting = members.some((m) => m.uid !== room.host && connText(m, room) === 'Connecting…');
   const failed = members.some((m) => m.uid !== room.host && connText(m, room) === 'Failed to connect (retrying…)');
-  const canStart = isHost && members.length >= 2 && !connecting && !failed;
-  const note = !isHost ? 'When the host starts, everyone enters together.'
-    : members.length < 2 ? 'You need at least one friend in the room.'
-      : failed ? 'Could not connect to a friend: network restrictions prevent peer-to-peer play.'
-        : connecting ? 'Connecting to your friends…'
-          : 'The game starts for everyone at the same time.';
+  const choosing = members.filter((m) => !m.ready);
+  const canStart = isHost && members.length >= 2 && !connecting && !failed && !choosing.length;
+  const note = members.length < 2 ? (isHost ? 'You need at least one friend in the room.' : 'Waiting for players…')
+    : choosing.length ? `Waiting for ${choosing.map((m) => m.uid === me.id ? 'you' : m.name).join(', ')} to choose a Pokémon.`
+      : !isHost ? 'Everyone is ready. The game starts for everyone at the same time.'
+        : failed ? 'Could not connect to a friend: network restrictions prevent peer-to-peer play.'
+          : connecting ? 'Connecting to your friends…'
+            : 'Everyone is ready. The game starts for everyone at the same time.';
 
   const el = h('div', { class: 'screen dim blur sec fr', 'data-kind': 'lobby' },
     head('Room', isHost
@@ -581,6 +625,8 @@ function lobbyScreen() {
             h('small', { class: 'muted' }, 'Anyone with the code can join from their friends list.')),
           h('button', { class: 'btn small ghost', onclick: () => copyCode(room.code) }, 'Copy code')),
         cards),
+      picker,
+      regionBox,
       inviteBox,
       h('div', { class: 'pb-lob-foot' },
         h('button', { class: 'btn ghost', onclick: leaveLobby }, 'Leave room'),
@@ -594,9 +640,99 @@ function lobbyScreen() {
   return el;
 }
 
+/** Species names from the mirrored game data (loaded once, on first lobby). */
+const NAMES = new Map();
+let namesLoading = null;
+function loadNames() {
+  if (namesLoading) return namesLoading;
+  namesLoading = fetch('/data/pokemon.json').then(r => r.json()).then((list) => {
+    for (const p of list || []) if (p && p.id) NAMES.set(p.id, p.name);
+    if (state.screen === 'lobby') render(true);
+  }).catch(() => {});
+  return namesLoading;
+}
 function speciesName(dex) {
-  const names = { 1: 'Bulbasaur', 4: 'Charmander', 7: 'Squirtle', 25: 'Pikachu', 133: 'Eevee' };
-  return names[dex] || (dex ? `#${String(dex).padStart(3, '0')}` : '');
+  return NAMES.get(dex) || (dex ? `#${String(dex).padStart(3, '0')}` : '');
+}
+
+/** The Pokémon this player may take into a run: its League roster. */
+function myRoster() {
+  const meta = globalThis.__pbApp && globalThis.__pbApp.meta;
+  const league = meta && meta.profile && meta.profile.league;
+  if (!Array.isArray(league)) return [];
+  return league.filter((id) => { try { return meta.inLeague(id); } catch { return false; } });
+}
+
+/** Regions the host has unlocked, with the highest difficulty for each. */
+function myRegions() {
+  const meta = globalThis.__pbApp && globalThis.__pbApp.meta;
+  const b = (meta && meta.profile && meta.profile.biomes) || {};
+  return Object.entries(b).filter(([, t]) => Number.isInteger(t) && t >= 0).map(([id, t]) => ({ id, max: t }));
+}
+const regionName = (id) => String(id || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** The host's choice of region/difficulty for the next run. */
+function runChoice() {
+  const regions = myRegions();
+  const meta = globalThis.__pbApp && globalThis.__pbApp.meta;
+  const last = meta && meta.profile && meta.profile.lastBiome;
+  let c = state.runCfg;
+  if (!c || !regions.some((r) => r.id === c.biome)) {
+    const r = regions.find((x) => x.id === last) || regions[0] || { id: 'forest', max: 0 };
+    c = state.runCfg = { biome: r.id, tier: 0, mode: 'standard' };
+  }
+  const r = regions.find((x) => x.id === c.biome);
+  if (r && c.tier > r.max) c.tier = r.max;
+  return c;
+}
+
+async function pickPokemon(dex) {
+  const room = state.room;
+  if (!room) return;
+  const meta = globalThis.__pbApp && globalThis.__pbApp.meta;
+  let shiny = false;
+  try { shiny = !!(meta && meta.shinySkin(dex)); } catch { /* no skins */ }
+  try {
+    const r = await api('POST', `/rooms/${room.code}/pick`, { dex, shiny });
+    state.room = r.room;
+    state.picking = false;
+    // The game's own screens default to this one too.
+    if (meta && meta.profile) { meta.profile.lastSpecies = dex; try { meta.save(); } catch { /* offline */ } }
+  } catch (e) { toast(e.message, true); }
+  render(true);
+}
+
+/** Wait until the game app has booted (and loaded the profile). */
+async function appReady(ms = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const app = globalThis.__pbApp;
+    if (app && app.meta && app.meta.profile && typeof app.startRun === 'function') return app;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+}
+
+/**
+ * Start OUR run of a co-op game from the room's config. The same for the host
+ * and every guest, and for a teammate coming back mid-run: nobody waits for
+ * anybody's run to exist. The bridge merges the seed/biome/tier/mode into the
+ * run (bundle patch A17), so every world is identical; the species is the one
+ * this player picked in the lobby.
+ */
+async function launchRun(cfg, room) {
+  const app = await appReady();
+  const me = (room.members || []).find((m) => m.uid === state.me.id);
+  const species = (me && me.dex) || myDex();
+  await joinSession(room);
+  if (globalThis.__pbSetRunCfg) globalThis.__pbSetRunCfg(cfg);
+  close();
+  if (app && species) {
+    const ok = await app.startRun({ species, biome: cfg.biome, tier: cfg.tier | 0, mode: cfg.mode || 'standard', boosts: [] });
+    if (ok && globalThis.__pb && globalThis.__pb.run) return true;
+  }
+  // Fallback: walk the game's own screens.
+  return startLocalRun();
 }
 
 async function createRoom() {
@@ -713,30 +849,28 @@ async function startLocalRun() {
 }
 
 /**
- * Host: start OUR run first (region and difficulty are picked on our own region
- * screen), then publish that run's config — seed, biome, tier, mode — to the
- * room. Guests build their run from exactly that config (bundle patch A17), so
- * both worlds are the same from the first frame; the bridge also broadcasts it
- * in the `start` message, which reaches guests faster than their room poll.
+ * Host: everyone has picked a Pokémon. Publish the run config (a fresh seed +
+ * the region/difficulty chosen in the lobby) to the room and to every peer, and
+ * start our own run from it like everyone else — nobody goes first.
  */
 async function startRun() {
   const room = state.room;
   if (!room || state.starting) return;
   if (room.host !== state.me.id || (room.members || []).length < 2) return;
+  if ((room.members || []).some((m) => !m.ready)) return;
   state.starting = true;
   try {
-    const members = (room.members || []).map((m) => ({
-      uid: m.uid, name: m.name, dex: m.uid === state.me.id ? myDex() : m.dex | 0, shiny: !!m.shiny,
-    }));
-    await joinSession({ ...room, members });
-    if (globalThis.__pbSetMembers) globalThis.__pbSetMembers(members);
-    const ok = await startLocalRun();
-    const run = globalThis.__pb && globalThis.__pb.run;
-    if (!ok || !run) { state.starting = false; toast('Could not start run.', true); return; }
-    const cfg = { biome: run.biome && run.biome.id, tier: run.tier | 0, mode: run.mode };
-    const r = await api('POST', `/rooms/${room.code}/start`, { seed: run.seed, cfg });
+    const choice = runChoice();
+    const seed = Math.floor(Math.random() * 2 ** 31);
+    const cfg = { biome: choice.biome, tier: choice.tier | 0, mode: choice.mode || 'standard' };
+    const r = await api('POST', `/rooms/${room.code}/start`, { seed, cfg });
     state.room = r.room;
+    await joinSession(r.room);
+    // Faster than the guests' room poll.
+    const net = globalThis.__pbNet;
+    if (net && net.isOpen && net.isOpen()) net.broadcast({ k: 'go', seed, cfg });
     state.starting = false;
+    followHost({ ...cfg, seed }, r.room);
   } catch (e) {
     toast(e.message, true);
     state.starting = false;
@@ -745,23 +879,22 @@ async function startRun() {
 }
 
 /**
- * Guest: the host's run exists — start ours from its config. Reached from the
- * room poll (`room.started` + `room.cfg`) and from the host's `start` message
- * (bridge -> `hostStarted`), whichever comes first; `followed` keeps one run
- * per host start.
+ * Everyone (host included): the room's game has started — start our run from
+ * its config. Reached from the room poll (`room.started` + `room.cfg`), from the
+ * host's `go`/`start` message (bridge -> `hostStarted`) and, for the host, from
+ * startRun(); `followed` keeps one run per start. Also how a player that dropped
+ * gets back into a run that is still going.
  */
 async function followHost(cfg, room) {
   if (!cfg || !Number.isFinite(cfg.seed) || state.starting) return;
   if (state.followed === cfg.seed) return;
   if (globalThis.__pb && globalThis.__pb.run) return;
   room = room || state.room;
-  if (!room || room.host === (state.me && state.me.id)) return;
+  if (!room) return;
   state.starting = true;
   state.followed = cfg.seed;
   try {
-    await joinSession(room);
-    if (globalThis.__pbSetRunCfg) globalThis.__pbSetRunCfg(cfg);
-    const ok = await startLocalRun();
+    const ok = await launchRun(cfg, room);
     if (ok) return;       // `starting` is cleared when that run ends (runEnded)
     state.followed = null;
     toast('Could not start the run. Retrying…', true);
@@ -801,6 +934,7 @@ function openFriends() {
 
 function openLobby() {
   if (!sessionChanged()) return;
+  state.roomAt = Date.now();
   dismissTour();
   state.screen = 'lobby';
   startPolling();
@@ -816,9 +950,16 @@ function close() {
 }
 
 async function poll() {
+  // Pick up a sign-in that happened after this module loaded (every new guest):
+  // without it nothing was polled, so invites never showed up.
+  sessionChanged();
   if (!state.token) return;
+  const asked = Date.now();
   try {
     const f = await api('GET', '/friends');
+    // An answer to a question asked before we entered the room says nothing
+    // about it: it used to bounce a player who had just joined out of the lobby.
+    if (!f.room && state.roomAt && asked < state.roomAt) f.room = state.room;
     state.friends = f;
     if (f.room) state.room = f.room;
     considerInvite(f.invite);
@@ -943,6 +1084,17 @@ body:has(#ui>.screen[data-kind]) .tour{display:none!important}
 .pb-lob-spr{width:64px;height:64px;filter:drop-shadow(0 3px 0 #0004)}
 .pb-lob-card .conn{font-size:11px;font-weight:800;color:#9df0bd;margin-top:2px;text-align:center;line-height:1.2}
 .pb-lob-card .conn.wait{color:#ffd76e}
+.pb-lob-card.choosing{border-color:#ffcb3d}
+.pb-lob-card .btn{margin-top:6px}
+.pb-lob-q{width:64px;height:64px;display:grid;place-items:center;font:900 34px var(--font-title);color:#ffcb3d}
+.pb-pick-grid{display:flex;flex-wrap:wrap;gap:8px;max-height:260px;overflow:auto}
+.pb-pick{display:flex;flex-direction:column;align-items:center;width:82px;padding:6px 4px;border-radius:14px;
+  border:2px solid #3a335c;background:#1a1630;color:#efeaff;cursor:pointer}
+.pb-pick img{width:48px;height:48px}
+.pb-pick small{font-size:11px;font-weight:800;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-pick.on,.pb-pick:hover{border-color:#ffcb3d}
+.pb-region{display:flex;gap:10px;flex-wrap:wrap}
+.pb-sel{min-width:180px}
 
 /* Lobby footer */
 .pb-lob-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px}

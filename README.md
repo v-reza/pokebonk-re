@@ -84,21 +84,38 @@ the right way, and never gain XP, level up, or take local damage.
 
 ![Guest view](docs/coop/guest-two-players.png)
 
-Start order: the host starts its run first and publishes its config (seed, biome,
-tier, mode) to the room and in the `start` message; guests build their run from it,
-so both worlds are identical. Each frame carries every player's current species
-(`P.DEX`), so a puppet always shows the right Pokémon, evolutions included. On a
-team level-up everyone picks their own card (as in PokéSurvivor). Guests follow
-the host through portals (frame field `sg`) and share its zone clock (`st`).
-A guest whose run ends sends `bye`; a guest that loses the host ends its run.
+Lobby: every member picks their own Pokémon in the room (their League roster);
+the host picks the region and difficulty. *Start run* unlocks once everyone has
+picked; it publishes a seed + region/difficulty to the room (and to every peer
+as `go`), and **everyone — host included — starts at the same moment** through
+the app's own `startRun`, with that exact config (`__pbRunOverride`), so every
+world is identical. A player who reloads mid-run follows the room back in and is
+taken back by the host (new session id → fresh enemy snapshot).
 
-Known limits: teammates' attacks have no visuals on the other screens (ghost casts
-are a stub), a dropped teammate cannot rejoin mid-run, there is no revive/spectate
-(a dead guest leaves the run; the host dying ends it for everyone), guests do not
-collect pickups and their gold is overwritten by the host's (shop purchases on a
-guest are not charged to the team purse), enemy projectiles and boss mechanics
-exist only on the host, and endless-mode migration / tower floors are not
-followed by guests.
+In the run (host-authoritative, as in PokéSurvivor):
+
+- enemies chase the nearest living player; each client takes contact damage and
+  enemy shots on its own screen (enemy projectiles are replicated)
+- every player's own projectiles are replayed on the others as harmless ghosts
+- pickups are collected by whoever reaches them (team XP/coins on the host,
+  berries/TMs sent to that player); guests see the gems around them
+- coins are one team purse: a guest's spending or gains go to the host
+- each frame carries every player's species (evolutions too), the zone, the
+  zone clock, endless migrations and tower floors; guests follow the host's
+  travel
+- level-ups: everyone picks their own card; the run waits for all
+- a fainted player is **downed**, not out: a teammate standing next to it for
+  4 s revives it, the camera follows a standing teammate meanwhile, and the run
+  ends only when everyone is down — the host dying does not end it
+- a teammate that goes silent for 10 s is dropped ("X left the run"); a guest
+  that loses the host ends its run
+
+Known limits: boss scripted mechanics (telegraphs/arena attacks) and the
+host's allies still exist only on the host (bosses' contact damage and shots
+do reach guests); ghosts cover projectile moves, not melee/area visuals; world
+interactables (boss altars, shrines, challenges, nests, portals, tower) are
+host-only; a rejoining player starts again from its starter.
+
 ## Languages
 
 English is the default language across the client. A `?lang=xx` URL query parameter and the in-game language selector (persisted in `localStorage['pokebonk.lang']`) override this default for the upstream game content. The co-op UI always renders in English regardless of the active game locale.

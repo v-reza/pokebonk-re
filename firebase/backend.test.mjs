@@ -343,7 +343,17 @@ test('rooms + invites: create, invite a friend, accept, both members, host start
   // Only the host can start; guests get 403.
   assert.equal((await call('POST', `/rooms/${code}/start`, { token: tb })).status, 403);
 
-  const started = await call('POST', `/rooms/${code}/start`, { token: ta, body: { seed: 424242 } });
+  // Everyone picks their own Pokémon before the host can start.
+  assert.equal((await call('POST', `/rooms/${code}/start`, { token: ta, body: { seed: 1 } })).status, 409);
+  const pickA = await call('POST', `/rooms/${code}/pick`, { token: ta, body: { dex: 4 } });
+  assert.equal(pickA.status, 200);
+  assert.equal((await call('POST', `/rooms/${code}/start`, { token: ta, body: { seed: 1 } })).status, 409);
+  const pickB = await call('POST', `/rooms/${code}/pick`, { token: tb, body: { dex: 7, shiny: true } });
+  assert.deepEqual(pickB.json.room.members.map((m) => [m.dex, m.ready]), [[4, true], [7, true]]);
+  assert.equal((await call('POST', `/rooms/${code}/pick`, { token: tb, body: { dex: 0 } })).status, 400);
+
+  const started = await call('POST', `/rooms/${code}/start`, { token: ta, body: { seed: 424242, cfg: { biome: 'forest', tier: 1, mode: 'standard' } } });
+  assert.deepEqual(started.json.room.cfg, { biome: 'forest', tier: 1, mode: 'standard' });
   assert.equal(started.status, 200);
   assert.equal(started.json.seed, 424242);
   assert.equal(started.json.room.started, true);

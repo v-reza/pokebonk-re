@@ -176,10 +176,19 @@ export const BUNDLE_PATCHES = [
   // -- A13: remote enemy rows still fade their hit flash / squash -----------
   // `coopRemoteUpdate` replaces the whole per-enemy tick on the guest, so the
   // flash set by A11/'hn' never decayed and a hit enemy stayed white forever.
+  // B2 (same patch): a guest takes contact damage from the host's enemies.
+  // Remote rows skipped the touch damage too, so a guest could never be hurt.
+  // Same rule as the host's own (radius, height, boss floor), against the
+  // guest's local player.
   [
     '   this.y[l] = this.run.terrain.height(this.x[l], this.z[l]);\r\n  }\r\n  update(e) {',
     '   this.y[l] = this.run.terrain.height(this.x[l], this.z[l]);\r\n'
-    + '   this.flash[l] = Math.max(0, this.flash[l] - e * 6), this.squash[l] *= Math.exp(-e * 10);\r\n  }\r\n  update(e) {',
+    + '   this.flash[l] = Math.max(0, this.flash[l] - e * 6), this.squash[l] *= Math.exp(-e * 10);\r\n'
+    + '   let _p = this.run.player, _u = this.flags[l];\r\n'
+    + '   if (!_p.dead && !(_u & 16512) && this.frozen[l] <= 0) {\r\n'
+    + '    let dx = _p.pos.x - this.x[l], dz = _p.pos.z - this.z[l], d = Math.hypot(dx, dz) || .001;\r\n'
+    + '    d < this.radius[l] + _p.radius && Math.abs(this.y[l] - _p.pos.y) < this.hgt[l] + .8 && _p.hurt(this.dmg[l] * this.run.diff.enemyDamage, this.typesOf(l)[0], l, NaN, NaN, !1, _u & 2 ? md(this.run) : _u & 12294 ? .25 : 0, l, _u & 4 ? { floor: .05 * (sn.strike[this.run.tier] ?? 1) } : {}) && (this.atkAnim[l] = .35, _p.shove(dx / d, dz / d, _u & 12294 ? 9 : 3 + Math.min(4, this.radius[l] * 2.5)))\r\n'
+    + '   }\r\n  }\r\n  update(e) {',
   ],
 
   // -- A14: never relocate or cull the host's enemies on a guest ------------
@@ -220,8 +229,88 @@ export const BUNDLE_PATCHES = [
   [
     'interact(e) {\r\n   let t = this.run;\r\n   if (!(e.used && e.kind !== `meowth`',
     'interact(e) {\r\n   let t = this.run;\r\n'
-    + '   if (t.coop && t.coop.active && !t.coop.isHost && /^(boss|shrine|portal|challenge|cursed|nest)$/.test(e.kind)) { t.ui.toast(`Only the host can do that in co-op`, null), t.audio.deny(); return }\r\n'
+    + '   if (t.coop && t.coop.active && !t.coop.isHost && /^(boss|shrine|portal|challenge|cursed|nest|tower)$/.test(e.kind)) { t.ui.toast(`Only the host can do that in co-op`, null), t.audio.deny(); return }\r\n'
     + '   if (!(e.used && e.kind !== `meowth`',
+  ],
+
+  // -- B1: host enemies chase the NEAREST living player ---------------------
+  // Sd.update read `t.player` once for every enemy: movement, ranged shots and
+  // the crowd push all aimed at the host, and a guest was simply ignored.
+  // `__pbCoopTarget` returns the nearest living player (local or a teammate's
+  // puppet); `i, a, o` (its x, z, y) are re-bound per enemy.
+  [
+    '   this.grid.build(this.n, this.x, this.z, this.alive);\r\n   let s = this.grid.result;\r\n',
+    '   this.grid.build(this.n, this.x, this.z, this.alive);\r\n   let s = this.grid.result, _ct = t.coop && t.coop.isHost ? globalThis.__pbCoopTarget : null;\r\n',
+  ],
+  [
+    '    if (this.remote[l]) {\r\n     this.coopRemoteUpdate(l, e);\r\n     continue\r\n    }\r\n',
+    '    if (this.remote[l]) {\r\n     this.coopRemoteUpdate(l, e);\r\n     continue\r\n    }\r\n'
+    + '    _ct && (n = _ct(t, this.x[l], this.z[l]), i = n.pos.x, a = n.pos.z, o = n.pos.y);\r\n',
+  ],
+  // ...but only the REAL local player takes contact damage here (a puppet's
+  // owner takes it on its own screen, see A13/B2).
+  [
+    'if (!(u & 16512) && _ < re && Math.abs(this.y[l] - o) < this.hgt[l] + .8 && f) {',
+    'if (!(u & 16512) && _ < re && Math.abs(this.y[l] - o) < this.hgt[l] + .8 && f && !n.remote) {',
+  ],
+
+  // -- B3: projectiles are shared ------------------------------------------
+  // `Vf.fire` is the one entry point for every projectile. `__pbFire` sends
+  // the host's ENEMY shots to guests (a real copy that can only hurt the guest
+  // there) and replays each player's own shots on the others as GHOSTS (flag
+  // 1<<29: drawn and moving, never hitting — the owner's copy deals damage).
+  [
+    '  fire(e) {\r\n   let t = !!((e.flags ?? 0) & 1),',
+    '  fire(e) {\r\n   globalThis.__pbFire && !e.net && globalThis.__pbFire(this.run, e);\r\n   let t = !!((e.flags ?? 0) & 1),',
+  ],
+  [
+    '    if (o & 64)\r\n     for (let t of n.within(this.x[a], this.z[a], this.explodeR[a])) {',
+    '    if (o & 536870912) continue;\r\n    if (o & 64)\r\n     for (let t of n.within(this.x[a], this.z[a], this.explodeR[a])) {',
+  ],
+
+  // -- B4: pickups go to the nearest player ---------------------------------
+  // Gems and items flew to, and were collected by, the host only. A teammate's
+  // puppet now attracts and collects them too; `__pbRemoteCollect` applies the
+  // effect for that teammate (team XP/coins here, heals and TMs sent to it).
+  [
+    '   let o = r * r;\r\n   this.magnetAll > 0',
+    '   let o = r * r, _pc = t.coop && t.coop.isHost ? globalThis.__pbCoopTarget : null;\r\n   this.magnetAll > 0',
+  ],
+  [
+    '   for (let a = 0; a < this.n; a++) {\r\n    if (!this.alive[a]) continue;\r\n    if (this.age[a] += e, this.rest[a]) {',
+    '   for (let a = 0; a < this.n; a++) {\r\n    if (!this.alive[a]) continue;\r\n    _pc && (n = _pc(t, this.x[a], this.z[a]));\r\n    if (this.age[a] += e, this.rest[a]) {',
+  ],
+  [
+    '      this.collect(a);\r\n      continue',
+    '      this.collect(a, n);\r\n      continue',
+  ],
+  [
+    '  collect(e) {\r\n   let t = this.run,\r\n    n = t.player;',
+    '  collect(e, _w) {\r\n   if (_w && _w.remote && globalThis.__pbRemoteCollect && globalThis.__pbRemoteCollect(this.run, this, e, _w, qf[this.kind[e]])) return;\r\n   let t = this.run,\r\n    n = t.player;',
+  ],
+  // `spawn` returns the slot, so a guest can draw the host's gems and apply a
+  // forwarded TM/heal through the bundle's own collect().
+  [
+    'this.attract[a] = 0, this.age[a] = 0, this.rest[a] = 0, this.count++\r\n  }',
+    'this.attract[a] = 0, this.age[a] = 0, this.rest[a] = 0, this.count++;\r\n   return a\r\n  }',
+  ],
+
+  // -- B5: co-op death is "downed", not game over ---------------------------
+  // As in PokéSurvivor: a downed player stays in the run, a teammate standing
+  // next to them revives them, and the run ends only when everyone is down
+  // (`__pbDowned` returns true when it took over).
+  [
+    '  onPlayerDeath() {\r\n',
+    '  onPlayerDeath() {\r\n   if (globalThis.__pbDowned && globalThis.__pbDowned(this)) return;\r\n',
+  ],
+  [
+    '     t && yg(this, n, t, e)',
+    '     t && !this.player.dead && yg(this, n, t, e)',
+  ],
+  // ...and while down, the camera follows a teammate who is still standing.
+  [
+    '  updateCamera(e) {\r\n   let t = this.r.camera,\r\n    n = this.player.pos;',
+    '  updateCamera(e) {\r\n   let t = this.r.camera,\r\n    n = globalThis.__pbCamPos ? globalThis.__pbCamPos(this) : this.player.pos;',
   ],
 
   // -- A16: expose the app so co-op can read the chosen starter -------------

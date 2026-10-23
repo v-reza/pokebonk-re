@@ -109,3 +109,37 @@ test('guest hits keep their direction and real damage', () => {
   coop.hit(5, 25.456, 16777215, 0.6, -0.8, 1.5);
   assert.deepEqual(coop.outEv.at(-1), ['h', 5, 25.46, 16777215, 0.6, -0.8, 1.5]);
 });
+
+test('a teammate that reloads (new session id) is taken back with a fresh snapshot', () => {
+  let back = 0, snaps = 0;
+  const { coop } = session('H', { mateBack: () => back++, enemySnapshot: () => { snaps++; return []; } });
+  const frame = (sid) => ({ k: 'f', p: serializePlayerState({ x: 1, y: 2, dex: 7 }), ev: [], sid });
+  coop.onClientFrame('G', frame('a'));
+  coop.onClientFrame('G', frame('a'));
+  assert.equal(back, 0);
+  assert.equal(snaps, 1);
+  coop.onClientFrame('G', frame('b'));        // reloaded
+  assert.equal(back, 1);
+  assert.equal(snaps, 2);
+});
+
+test('a silent teammate is dropped, and taken back when it speaks again', () => {
+  let left = 0, back = 0;
+  const { coop } = session('H', { mateLeft: () => left++, mateBack: () => back++ });
+  coop.onClientFrame('G', { k: 'f', p: serializePlayerState({ x: 0, y: 0 }), ev: [], sid: 's1' });
+  coop.mate('G').lastAt -= 11000;
+  coop.tick(0.01);
+  assert.equal(left, 1);
+  assert.equal(coop.mate('G').connected, false);
+  coop.onClientFrame('G', { k: 'f', p: serializePlayerState({ x: 0, y: 0 }), ev: [], sid: 's1' });
+  assert.equal(back, 1);
+  assert.equal(coop.mate('G').connected, true);
+});
+
+test('guest gold changes and ghost shots reach the host', () => {
+  let gold = 0, ghosts = 0;
+  const { coop } = session('H', { goldDelta: (d) => { gold += d; }, ghostFire: () => ghosts++ });
+  coop.onClientFrame('G', { k: 'f', p: serializePlayerState({ x: 0, y: 0 }), ev: [['gd', 7], ['pf', [1, 2, 3]]], sid: 's' });
+  assert.equal(gold, 7);
+  assert.equal(ghosts, 1);
+});

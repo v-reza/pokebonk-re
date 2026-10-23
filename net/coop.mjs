@@ -221,13 +221,13 @@ export function readPlayerState(a) {
 // ---------------------------------------------------------------------------
 
 /** Guest -> host frame. */
-export function buildGuestFrame(state, ev = []) {
-  return { k: 'f', p: state, ev };
+export function buildGuestFrame(state, ev = [], sid) {
+  return { k: 'f', p: state, ev, sid };
 }
 
 /** Host -> guest frame. */
-export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st }) {
-  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st };
+export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk }) {
+  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st, mg, fl, pk };
 }
 
 /** Host -> all start message. */
@@ -244,6 +244,11 @@ export function buildStart({ seed, host, members }) {
 
 const COLORS = ['#ffcb3d', '#5fc8ff', '#7ee07a', '#ff8ad8'];
 const STALL_MS = 2500;
+const PICKUP_EVERY = 0.4;      // s between pickup snapshots per guest
+// A teammate that sends nothing for this long has left, whatever the channel
+// says (the relay never reports a closed peer). Longer before its first frame:
+// its run is still starting.
+const SILENT_MS = 10000, SILENT_FIRST_MS = 45000;
 
 export class Coop {
   /**
@@ -310,6 +315,8 @@ export class Coop {
     this.levelNow = 1;
     this.seenSeq = 0;
     this.doneSeq = 0;
+    // This session's id: a guest that reloads and comes back sends a new one.
+    this.sid = Math.random().toString(36).slice(2, 10);
     const members = cfg.members;
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
@@ -324,7 +331,8 @@ export class Coop {
       const mate = {
         uid: m.uid, name: m.name, color: COLORS[i % COLORS.length], dex: m.dex | 0, shiny: !!m.shiny,
         pl: { uid: m.uid, name: m.name, tag: m.name, tagColor: COLORS[i % COLORS.length], remote: true, x, y, dead: false },
-        connected: true, q: [], flushT: 0, xpMul: 1, state: null, synced: false
+        connected: true, q: [], flushT: 0, xpMul: 1, state: null, synced: false,
+        sid: null, lastAt: this.lastHostAt
       };
       mate.pl.net = { x, y, ang: Math.PI / 2, walk: 0, hp: 1, maxHp: 1, dead: 0 };
       this.mates.set(m.uid, mate);
@@ -389,11 +397,17 @@ export class Coop {
     const p = { [this.me]: this.myState() };
     for (const o of this.mates.values()) if (o.connected && o.uid !== m.uid && o.state) p[o.uid] = o.state;
     const ev = m.q; m.q = [];
+    // Pickups near that guest, a few times a second: a snapshot rather than
+    // add/remove events, so a lost or merged gem heals itself on the next one.
+    let pk;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (g.pickupList && now - (m.pkAt || 0) >= PICKUP_EVERY * 1000) { m.pkAt = now; pk = g.pickupList(m); }
     return buildHostFrame({
       t: r2(st.time), lv: st.level, xp: r2(st.xp), xn: st.xpNext, ki: st.kills,
       // Enemies around THAT guest (PokéSurvivor's viewOf(m)), not around the host.
       bo: st.bosses, co: st.coins, p, e: g.enemyList ? g.enemyList(m) : [],
-      ev, sg: st.stage, st: st.stageTime != null ? r2(st.stageTime) : undefined
+      ev, sg: st.stage, st: st.stageTime != null ? r2(st.stageTime) : undefined,
+      mg: st.migrations, fl: st.floor, pk
     });
   }
 
@@ -404,7 +418,7 @@ export class Coop {
 
   flushClient(force) {
     if (!force && !this.outEv.length && this.flushT > 0) return;
-    this.net.toHost(buildGuestFrame(this.myState(), this.outEv));
+    this.net.toHost(buildGuestFrame(this.myState(), this.outEv, this.sid));
     this.outEv = [];
   }
 
@@ -412,8 +426,10 @@ export class Coop {
   tick(dt) {
     if (!this.active) return;
     if (this.host) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       for (const m of this.mates.values()) {
         if (!m.connected) continue;
+        if (now - m.lastAt > (m.sid ? SILENT_MS : SILENT_FIRST_MS)) { this.mateGone(m.uid); continue; }
         m.flushT -= dt;
         if (m.flushT > 0) continue;
         m.flushT = this.rateFor(m.uid);
@@ -425,7 +441,7 @@ export class Coop {
       this.flushT -= dt;
       if (this.flushT <= 0) {
         this.flushT = this.rateFor(this.hostUid);
-        this.net.toHost(buildGuestFrame(this.myState(), this.outEv));
+        this.net.toHost(buildGuestFrame(this.myState(), this.outEv, this.sid));
         this.outEv = [];
       }
     }
@@ -460,7 +476,16 @@ export class Coop {
   // --- host: incoming guest frame ---
   onClientFrame(from, msg) {
     const m = this.mates.get(from);
-    if (!m || !m.connected) return;
+    if (!m) return;
+    m.lastAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    // Back after a drop, or a new session (it reloaded and followed the room
+    // into the run again): take it in with a fresh enemy snapshot.
+    const back = !m.connected || (msg.sid && m.sid && msg.sid !== m.sid);
+    if (msg.sid) m.sid = msg.sid;
+    if (back) {
+      m.connected = true; m.synced = false; m.q = []; m.pkAt = 0; m.state = null;
+      if (this.game.mateBack) this.game.mateBack(m);
+    }
     if (msg.p) {
       m.state = msg.p;
       m.pl.net = readPlayerState(msg.p);
@@ -498,6 +523,13 @@ export class Coop {
           break;
         case 'lp': this.picked(from); break;
         case 'bye': this.mateGone(from); break;
+        // Its own shot: we draw it as a ghost and pass it on to the others.
+        case 'pf':
+          if (this.game.ghostFire) this.game.ghostFire(m.pl, ev[1]);
+          this.emitNear(['pf', from, ev[1]], m.pl.pos ? m.pl.pos.x : 0, m.pl.pos ? m.pl.pos.z : 0, from, NEAR);
+          break;
+        // It changed the team purse (shop, slots, rocks...).
+        case 'gd': if (this.game.goldDelta) this.game.goldDelta(num(ev[1], 0, -1e7, 1e7)); break;
       }
     }
   }
@@ -510,8 +542,10 @@ export class Coop {
     for (const ev of msg.ev || []) this.applyHostEvent(ev);
     this.game.syncTeam({
       time: msg.t, level: msg.lv, xp: msg.xp, xpNext: msg.xn, kills: msg.ki,
-      bosses: msg.bo, coins: msg.co, stage: msg.sg, stageTime: msg.st
+      bosses: msg.bo, coins: msg.co, stage: msg.sg, stageTime: msg.st,
+      migrations: msg.mg, floor: msg.fl
     });
+    if (msg.pk && this.game.syncPickups) this.game.syncPickups(msg.pk);
     for (const u in msg.p || {}) {
       const m = this.mates.get(u);
       if (m) m.pl.net = readPlayerState(msg.p[u]);
@@ -545,6 +579,10 @@ export class Coop {
       case 'sh': if (g.shiny) g.shiny(ev[1]); break;
       case 'ov': { const cb = g.over; const d = ev[1]; this.end(); if (cb) cb(d); break; }
       case 'mag': if (g.pullAll) g.pullAll(); break;
+      case 'es': if (g.enemyShot) g.enemyShot(ev[1], ev[2]); break;
+      case 'pf': { const m = this.mates.get(ev[1]); if (m && g.ghostFire) g.ghostFire(m.pl, ev[2]); break; }
+      case 'heal': if (g.heal) g.heal(num(ev[1], 0, 0, 1)); break;
+      case 'item': if (g.item && typeof ev[1] === 'string') g.item(ev[1].slice(0, 24)); break;
     }
   }
 
@@ -643,16 +681,27 @@ export class Coop {
     this.end();
   }
 
+  /** Host: an event for one teammate only. */
+  toMate(u, ev) { const m = this.mates.get(u); if (this.host && m && m.connected && m.q.length < 400) m.q.push(ev); }
+
+  /** Your own projectile: the others draw it as a ghost. Enemy shots (host). */
+  fired(row) {
+    if (!this.active) return;
+    if (this.host) this.emitNear(['pf', this.me, row], this.local.pos.x, this.local.pos.z, null, NEAR);
+    else if (this.outEv.length < 200) this.outEv.push(['pf', row]);
+  }
+  shot(row, slot, x, z) { if (this.host) this.emitNear(['es', row, slot], x, z, null, NEAR); }
+
   /** Leave the session mid-run (same as PokéSurvivor's Coop.leave). */
   leave() { this.over({ why: 'host' }); }
 
-  emitNear(ev, x, z, except) {
+  emitNear(ev, x, z, except, radius = NEAR_HURT) {
     for (const m of this.mates.values()) {
       if (!m.connected || m.uid === except) continue;
       const v = m.pl;
       const px = v.pos ? v.pos.x : (v.net ? v.net.x : v.x), pz = v.pos ? v.pos.z : (v.net ? v.net.y : (v.y || 0));
       const dx = px - x, dz = pz - z;
-      if (dx * dx + dz * dz > NEAR_HURT * NEAR_HURT) continue;
+      if (dx * dx + dz * dz > radius * radius) continue;
       if (m.q.length > 400) continue;
       m.q.push(ev);
     }

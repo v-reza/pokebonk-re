@@ -101,7 +101,7 @@ export function socialRoutes(api) {
     cfg: r.started && r.cfg ? r.cfg : null,
     at: r.at || 0,
     members: Object.entries(r.m || {})
-      .map(([uid, v]) => ({ uid, name: v.name || '', dex: v.dex | 0, shiny: !!v.shiny, at: v.at || 0 }))
+      .map(([uid, v]) => ({ uid, name: v.name || '', dex: v.dex | 0, shiny: !!v.shiny, ready: !!v.ready, at: v.at || 0 }))
       .sort((a, b) => (a.uid === r.host ? -1 : b.uid === r.host ? 1 : a.at - b.at)),
   });
 
@@ -182,6 +182,8 @@ export function socialRoutes(api) {
       name: acc.name,
       dex: Number(b.dex ?? prev.dex) | 0,
       shiny: b.shiny != null ? !!b.shiny : !!prev.shiny,
+      // Picked their Pokémon in this room (POST /rooms/:code/pick)?
+      ready: !!prev.ready,
       at: prev.at || now(),
     };
     await api.saveRoom(room);
@@ -393,6 +395,21 @@ export function socialRoutes(api) {
     json(res, 200, { room: publicRoom(room) });
   });
 
+  // A member chooses the Pokémon it will play this room's runs with.
+  route('POST', '/rooms/:code/pick', async (req, res, url, params) => {
+    const acc = await api.me(req, res);
+    if (!acc) return;
+    const room = await api.room(String(params.code || '').toUpperCase());
+    if (!room || !room.m || !room.m[acc.id]) return json(res, 404, { error: 'You are not in that room.' });
+    const b = (await body(req)) || {};
+    const dex = Number(b.dex) | 0;
+    if (dex < 1 || dex > 5000) return json(res, 400, { error: 'Choose a Pokémon.' });
+    room.m[acc.id] = { ...room.m[acc.id], dex, shiny: !!b.shiny, ready: true };
+    await api.saveRoom(room);
+    flush();
+    json(res, 200, { room: publicRoom(room) });
+  });
+
   route('POST', '/rooms/:code/leave', async (req, res, url, params) => {
     const acc = await api.me(req, res);
     if (!acc) return;
@@ -411,6 +428,7 @@ export function socialRoutes(api) {
     if (room.host !== acc.id) return json(res, 403, { error: 'Only the host can start the game.' });
     const members = Object.keys(room.m || {});
     if (members.length < 2) return json(res, 409, { error: 'You need at least one friend in the room.' });
+    if (members.some((u) => !room.m[u].ready)) return json(res, 409, { error: 'Everyone has to choose a Pokémon first.' });
     const b = (await body(req)) || {};
     room.open = false;
     room.started = true;
