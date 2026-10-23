@@ -475,3 +475,116 @@ test('rooms: myRoom finds a room saved by another instance', async () => {
   await a.delRoom('ABC123');
   assert.equal(await b.myRoom('u1'), null);
 });
+
+// --- batched profile actions (0.8.29 path) ----------------------------------
+// The 0.8.29 client sends lab/item/archive/quest/task mutations through
+// POST /profile/actions and never calls the per-feature routes, so this route
+// is what makes those purchases persist.
+
+test('profile/actions applies a batch and returns the profile', async () => {
+  const g = await call('POST', '/auth/guest');
+  const token = g.json.token;
+
+  const before = await call('GET', '/profile', { token });
+  assert.deepEqual(before.json.profile.itemsOwned, []);
+
+  const r = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'item', key: 'lucky-egg' }, { k: 'lab', id: 'stardust' }] },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.applied, 2);
+  assert.ok(r.json.profile.itemsOwned.includes('lucky-egg'));
+  assert.equal(r.json.profile.lab.stardust, 1);
+
+  const after = await call('GET', '/profile', { token });
+  assert.ok(after.json.profile.itemsOwned.includes('lucky-egg'), 'persisted');
+  assert.equal(after.json.profile.lab.stardust, 1);
+});
+
+test('profile/actions: archive toggles, quest marks, task slot claims', async () => {
+  const g = await call('POST', '/auth/guest');
+  const token = g.json.token;
+
+  await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'item', key: 'amulet-coin' }] },
+  });
+  const off = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'archive', key: 'amulet-coin', off: 1 }] },
+  });
+  assert.deepEqual(off.json.profile.itemsOff, ['amulet-coin']);
+  const on = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'archive', key: 'amulet-coin', off: 0 }] },
+  });
+  assert.deepEqual(on.json.profile.itemsOff, []);
+
+  const q = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'quest', id: 'daily-1' }] },
+  });
+  assert.equal(q.json.profile.quests['daily-1'], 1);
+
+  const t = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'task', period: 'daily', slot: 2 }] },
+  });
+  assert.equal(t.json.profile.daily.claimed[2], 1);
+});
+
+test('profile/actions: unknown kinds and malformed input are ignored, not fatal', async () => {
+  const g = await call('POST', '/auth/guest');
+  const token = g.json.token;
+
+  const r = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'nope' }, null, { k: 'task', period: 'weekly', slot: 99 }, { k: 'archive' }] },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.applied, 0, 'malformed actions mutate nothing and are not counted');
+  assert.deepEqual(r.json.profile.itemsOff, []);
+
+  const ok = await call('POST', '/profile/actions', {
+    token,
+    body: { actions: [{ k: 'nope' }, { k: 'item', key: 'rare-candy' }] },
+  });
+  assert.equal(ok.json.applied, 1, 'a well-formed action in the same batch still lands');
+
+  const empty = await call('POST', '/profile/actions', { token, body: {} });
+  assert.equal(empty.status, 200);
+  assert.equal(empty.json.applied, 0);
+});
+
+test('profile/actions requires auth', async () => {
+  const r = await call('POST', '/profile/actions', { body: { actions: [] } });
+  assert.equal(r.status, 401);
+});
+
+// --- wardrobe + Team favourites persistence (0.8.27) ------------------------
+// The client sends `skins` and `team` inside PUT /profile/prefs alongside the
+// older preference fields; both must round-trip or looks and favourites are
+// lost on reload.
+
+test('profile/prefs persists wardrobe skins and Team favourites', async () => {
+  const g = await call('POST', '/auth/guest');
+  const token = g.json.token;
+
+  const before = await call('GET', '/profile', { token });
+  assert.deepEqual(before.json.profile.skins, []);
+  assert.deepEqual(before.json.profile.team, []);
+
+  const skins = [4, 7, 25];
+  const team = [25, 4, 7, 1, 133, 150];
+  const put = await call('PUT', '/profile/prefs', {
+    token,
+    body: { skins, team, title: 'Champion', avatar: 'red', frame: 'gold' },
+  });
+  assert.equal(put.status, 204);
+
+  const after = await call('GET', '/profile', { token });
+  assert.deepEqual(after.json.profile.skins, skins, 'looks survive a reload');
+  assert.deepEqual(after.json.profile.team, team, 'six Team favourites survive a reload');
+  assert.equal(after.json.profile.title, 'Champion');
+});

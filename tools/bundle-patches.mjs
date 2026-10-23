@@ -5,10 +5,18 @@
 /** Bridge entry point used by the injected `DC.buildStage` hook. */
 export const BUILD_PUPPETS_HOOK = '__pbBuildPuppets';
 
-export const BUNDLE_PATCHES = [
-  // -- redirect the backend + Turnstile (existing behaviour) ---------------
+/**
+ * Redirects that apply to EVERY mirrored build (0.8.13 and 0.8.29): point the
+ * API at our own server and replace Turnstile with the local stub.
+ */
+export const REDIRECT_PATCHES = [
   ['https://api.pokebonk.com', '/api'],
   ['https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', '/turnstile-stub.js'],
+];
+
+export const BUNDLE_PATCHES = [
+  // -- redirect the backend + Turnstile (existing behaviour) ---------------
+  ...REDIRECT_PATCHES,
 
   // -- A1: puppet factory must tolerate a member with no species ------------
   // `__pbMakePuppets` (bundle tail) does `new Yg(run, m.dex ?? run.startSpecies

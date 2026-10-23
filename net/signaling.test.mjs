@@ -38,11 +38,14 @@ async function readBody(pathname) {
   return r.text();
 }
 
-test('index.html carries the co-op bridge', async () => {
-  const html = await readBody('/');
-  assert.match(html, /__pbStartCoop/);
-  assert.match(html, /signaling-local\.mjs/);
-  assert.match(html, /__pbMakePuppets/);
+test('legacy index-0.8.13.html carries its co-op bridge', async () => {
+  const legacyHtml = await readBody('/index-0.8.13.html');
+  assert.match(legacyHtml, /__pbStartCoop/);
+  assert.match(legacyHtml, /signaling-local\.mjs/);
+  assert.match(legacyHtml, /__pbMakePuppets/);
+
+  const defaultHtml = await readBody('/');
+  assert.match(defaultHtml, /main-DEBvJLhQ|mvl14oup/);
 });
 
 test('patched bundle is served with hooks and applied string patches', async () => {

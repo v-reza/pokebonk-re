@@ -8,10 +8,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {
   now, token, newProfile, newAccount, hashPassword, checkPassword,
-  SEASON, EVENTS, seasonPayload, boardFor, json, body,
+  SEASON, EVENTS, seasonPayload, boardFor, json, body, applyProfileAction,
 } from './firebase/shared.mjs';
+import { clanRoutes } from './firebase/clans.mjs';
+import { coopRoutes } from './firebase/coop.mjs';
 import { socialRoutes, edgeKey } from './firebase/social.mjs';
-import { BUNDLE_PATCHES, applyPatches, assertMirrorHooks } from './tools/bundle-patches.mjs';
+import { BUNDLE_PATCHES, REDIRECT_PATCHES, applyPatches, assertMirrorHooks } from './tools/bundle-patches.mjs';
+import { applyCoopPatches } from './tools/bundle-patches-0.8.29.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const UPSTREAM = 'https://pokebonk.com';
@@ -71,6 +74,10 @@ store.friends ||= {};   // key `uidA_uidB` -> edge
 store.pres ||= {};      // uid -> { at, room, play }
 store.rooms ||= {};     // code -> room
 store.invites ||= {};   // `${to}|${from}` -> invite
+store.clans ||= {};     // clanId -> clan document (see firebase/clans.mjs)
+store.coopRooms ||= {};  // CODE -> co-op room (signals, chat, members)
+store.coopInvites ||= {}; // id -> room invite
+store.coopParties ||= {}; // party -> seed (one world per party)
 let saveTimer = 0;
 function persist() {
   clearTimeout(saveTimer);
@@ -189,7 +196,7 @@ route('PUT', '/profile/prefs', async (req, res) => {
   const b = await body(req) || {};
   const p = acc.profile;
   if (b.settings && typeof b.settings === 'object') p.settings = { ...p.settings, ...b.settings };
-  for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title', 'skins']) {
+  for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title', 'skins', 'team']) {
     if (b[k] !== undefined) p[k] = b[k];
   }
   persist();
@@ -216,8 +223,7 @@ route('POST', '/lab/buy', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const p = acc.profile;
-  const lv = p.lab[b.id] ?? 0;
-  p.lab[b.id] = lv + 1;
+  applyProfileAction(p, { k: 'lab', id: b.id });
   persist();
   json(res, 200, { profile: p });
 });
@@ -227,7 +233,7 @@ route('POST', '/items/buy', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const p = acc.profile;
-  if (b.key && !p.itemsOwned.includes(b.key)) p.itemsOwned.push(b.key);
+  applyProfileAction(p, { k: 'item', key: b.key });
   persist();
   json(res, 200, { profile: p });
 });
@@ -237,11 +243,7 @@ route('POST', '/items/archive', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const p = acc.profile;
-  if (b.key) {
-    p.itemsOff = b.off
-      ? [...new Set([...p.itemsOff, b.key])]
-      : p.itemsOff.filter((k) => k !== b.key);
-  }
+  applyProfileAction(p, { k: 'archive', key: b.key, off: b.off });
   persist();
   json(res, 200, { profile: p });
 });
@@ -251,7 +253,7 @@ route('POST', '/quests/claim', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const p = acc.profile;
-  if (b.id) p.quests[b.id] = 1;
+  applyProfileAction(p, { k: 'quest', id: b.id });
   persist();
   json(res, 200, { profile: p });
 });
@@ -261,10 +263,22 @@ route('POST', '/tasks/claim', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const p = acc.profile;
-  const t = p[b.period];
-  if (t && Number.isInteger(b.slot) && b.slot >= 0 && b.slot < 4) t.claimed[b.slot] = 1;
+  applyProfileAction(p, { k: 'task', period: b.period, slot: b.slot });
   persist();
   json(res, 200, { profile: p });
+});
+
+// Batched profile mutations. The 0.8.29 client always has `backend.actions`, so
+// lab/item/archive/quest/task go through here and never call the routes above.
+route('POST', '/profile/actions', async (req, res) => {
+  const acc = requireAccount(req, res);
+  if (!acc) return;
+  const b = await body(req) || {};
+  const list = Array.isArray(b.actions) ? b.actions.slice(0, 64) : [];
+  let applied = 0;
+  for (const a of list) if (applyProfileAction(acc.profile, a)) applied++;
+  persist();
+  json(res, 200, { profile: acc.profile, applied });
 });
 
 route('POST', '/tasks/reroll', async (req, res) => {
@@ -343,9 +357,18 @@ route('POST', '/runs', async (req, res) => {
   if (!acc) return;
   const b = await body(req) || {};
   const id = `run-${store.nextRun++}`;
-  store.runs[id] = { id, account: acc.id, cfg: b, seed: b.seed ?? crypto.randomInt(1, 2 ** 31), started: now() };
+  // Co-op: the seed belongs to the party so every member builds the same world.
+  let seed;
+  if (b.party) {
+    const key = String(b.party);
+    if (store.coopParties[key] === undefined) store.coopParties[key] = crypto.randomInt(1, 2 ** 31);
+    seed = store.coopParties[key];
+  } else {
+    seed = b.seed ?? crypto.randomInt(1, 2 ** 31);
+  }
+  store.runs[id] = { id, account: acc.id, cfg: b, seed, started: now() };
   persist();
-  json(res, 200, { id, seed: store.runs[id].seed, ranked: true, boosts: [] });
+  json(res, 200, { id, seed, party: b.party ?? null, ranked: true, boosts: [] });
 });
 
 route('GET', '/runs/:id/build', (req, res, url, params) => {
@@ -415,17 +438,60 @@ route('POST', '/mail/read', (req, res) => json(res, 204, undefined));
 route('POST', '/mail/:id/answer', (req, res) => json(res, 204, undefined));
 route('POST', '/mail/:id/claim', (req, res) => json(res, 204, undefined));
 
-route('GET', '/clans/status', (req, res) => json(res, 200, { clan: null, mail: 0, requests: 0, friends: 0, rewards: 0, board: 0 }));
 route('GET', '/clans/board', (req, res) => json(res, 200, { entries: [], info: seasonPayload() }));
-route('GET', '/clans/search', (req, res) => json(res, 200, { clans: [] }));
-route('GET', '/clans/:id', (req, res) => json(res, 404, { error: 'Clan not found.' }));
-route('GET', '/clans/:id/activity', (req, res) => json(res, 200, []));
-route('GET', '/clans/:id/chat', (req, res) => json(res, 200, []));
-route('POST', '/clans', (req, res) => json(res, 400, { error: 'Clans are not available in local mode.' }));
-route('POST', '/clans/chat', (req, res) => json(res, 400, { error: 'Clans are not available in local mode.' }));
-route('POST', '/clans/react', (req, res) => json(res, 204, undefined));
 route('POST', '/clans/claim', (req, res) => json(res, 400, { error: 'Clans are not available in local mode.' }));
 route('POST', '/clans/expand', (req, res) => json(res, 400, { error: 'Clans are not available in local mode.' }));
+
+// --- clans: JSON-store side of firebase/clans.mjs (same handlers as --firebase)
+const clanApi = {
+  me: (req, res) => {
+    const acc = accountByToken(req);
+    if (!acc) json(res, 401, { error: 'Invalid session.' });
+    return acc;
+  },
+  byName: async (name) => accountByName(name),
+  byId: async (id) => store.accounts[id] || null,
+  store: {
+    get: async (id) => store.clans[id] || null,
+    byName: async (name) => {
+      const lower = String(name || '').toLowerCase();
+      return Object.values(store.clans).find((c) => c.name.toLowerCase() === lower) || null;
+    },
+    byMember: async (uid) => Object.values(store.clans).find((c) => c.memberIds.includes(uid)) || null,
+    list: async () => Object.values(store.clans),
+    save: async (clan) => { store.clans[clan.id] = clan; },
+    del: async (id) => { delete store.clans[id]; },
+  },
+};
+for (const r of clanRoutes(clanApi).routes) routes.push(r);
+
+// --- co-op rooms (their GT mesh signaling + lobby; same handlers as --firebase)
+const coopApi = {
+  me: (req, res) => {
+    const acc = accountByToken(req);
+    if (!acc) json(res, 401, { error: 'Invalid session.' });
+    return acc;
+  },
+  byName: async (name) => accountByName(name),
+  byId: async (id) => store.accounts[id] || null,
+  enabled: process.env.COOP_ENABLED !== '0',
+  store: {
+    room: async (code) => store.coopRooms[String(code || '').toUpperCase()] || null,
+    roomOf: async (uid) => Object.values(store.coopRooms).find((r) => r.members.some((m) => m.id === uid)) || null,
+    saveRoom: async (room) => { store.coopRooms[room.code] = room; },
+    delRoom: async (code) => { delete store.coopRooms[String(code || '').toUpperCase()]; },
+    invites: async (uid) => Object.values(store.coopInvites).filter((i) => i.to === uid),
+    saveInvite: async (i) => { store.coopInvites[i.id] = i; },
+    delInvite: async (id) => { delete store.coopInvites[id]; },
+    partySeed: async (party) => {
+      const key = String(party);
+      if (store.coopParties[key] === undefined) store.coopParties[key] = crypto.randomInt(1, 2 ** 31);
+      return store.coopParties[key];
+    },
+  },
+};
+for (const r of coopRoutes(coopApi).routes) routes.push(r);
+
 
 // --- social (friends, presence, rooms, invites). The handlers live in
 // firebase/social.mjs so `--firebase` mode answers identically; this adapter is
@@ -526,6 +592,10 @@ function matchRoute(method, pathname) {
 
 const BUNDLE = 'main-D5OUVqGK-mvilprw2.js';
 
+// 0.8.29 target: same game, rebuilt. Serves redirects + the five co-op hooks
+// from tools/bundle-patches-0.8.29.mjs instead of the 0.8.13 string patches.
+const NEW_BUNDLE = 'main-DEBvJLhQ-mvl14oup.js';
+
 /** Patched bundle cache: file path -> Buffer. */
 const PATCHED = new Map();
 
@@ -572,13 +642,23 @@ async function serveStatic(req, res, pathname) {
       src = src.replace(/<script[^>]*static\.cloudflareinsights\.com[\s\S]*?<\/script>/g, '');
       if (src !== before) return sendFile(res, file, Buffer.from(src));
     }
-    if (ext === '.js' && rel.includes('main-D5OUVqGK')) {
+    if (ext === '.js' && (rel.includes('main-D5OUVqGK') || rel.includes(process.env.PB_NEW_BUNDLE || NEW_BUNDLE))) {
       buf = PATCHED.get(file);
       if (!buf) {
         const src = await readFile(file, 'utf8');
         try {
-          assertMirrorHooks(src);
-          buf = Buffer.from(applyPatches(src, BUNDLE_PATCHES, rel));
+          if (rel.includes(process.env.PB_NEW_BUNDLE || NEW_BUNDLE)) {
+            // 0.8.29: redirects first, then the co-op hooks. The old A1-A8
+            // patches and the E1-E14 hook checks describe 0.8.13 symbols and
+            // must not run against this build.
+            const redirected = applyPatches(src, REDIRECT_PATCHES, rel);
+            const res = applyCoopPatches(redirected);
+            console.log('[pb-patch] ' + rel + ': redirects + ' + res.applied.length + ' co-op hooks');
+            buf = Buffer.from(res.source);
+          } else {
+            assertMirrorHooks(src);
+            buf = Buffer.from(applyPatches(src, BUNDLE_PATCHES, rel));
+          }
         } catch (e) {
           // Serve the game anyway (single-player still works), but say loudly why
           // co-op will not.

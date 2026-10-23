@@ -1,6 +1,8 @@
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BUILD, VERSION, ENTRY, INDEX } from './build-target.mjs';
 
 const ORIGIN = 'https://pokebonk.com';
 const ROOT = path.resolve('public');
@@ -11,7 +13,7 @@ const seen = new Set();
 const failed = [];
 let ok = 0, bytes = 0;
 
-function add(u) {
+export function add(u) {
   if (!u) return;
   const clean = u.replace(/^\.\//, '').replace(/\?.*$/, '');
   if (!clean || clean.startsWith('http') || clean.startsWith('blob:') || clean.startsWith('data:')) return;
@@ -19,7 +21,7 @@ function add(u) {
   queue.add(clean);
 }
 
-async function download(rel) {
+export async function download(rel) {
   const out = path.join(ROOT, rel);
   if (existsSync(out)) { seen.add(rel); return; }
   const res = await fetch(`${ORIGIN}/${rel}`);
@@ -33,7 +35,7 @@ async function download(rel) {
   if (/\.json$/.test(rel)) scanJson(buf.toString('utf8'), path.posix.dirname(rel));
 }
 
-function scanText(s, dir) {
+export function scanText(s, dir) {
   for (const m of s.matchAll(/["'`](\.{0,2}\/?[\w./@-]+\.(?:js|css|png|glb|ogg|woff2|json))["'`]/g)) {
     let p = m[1];
     if (p.startsWith('http')) continue;
@@ -43,7 +45,7 @@ function scanText(s, dir) {
   }
 }
 
-function scanJson(s, dir) {
+export function scanJson(s, dir) {
   for (const m of s.matchAll(/"([\w./@-]+\.(?:png|glb|ogg|json|jpg))"/g)) {
     let p = m[1];
     if (p.startsWith('http')) continue;
@@ -53,7 +55,7 @@ function scanJson(s, dir) {
   }
 }
 
-async function worker() {
+export async function worker() {
   while (queue.size) {
     const batch = [...queue].slice(0, 40);
     batch.forEach((x) => queue.delete(x));
@@ -64,42 +66,82 @@ async function worker() {
   }
 }
 
-const data = JSON.parse(await readFile('../pokebonk-re/mirror/data/sprites.json', 'utf8').catch(() => '{}'));
-const items = JSON.parse(await readFile('../pokebonk-re/mirror/data/items.json', 'utf8').catch(() => '{}'));
+export async function main(options = {}) {
+  const isDryRun = options.dryRun ?? (
+    process.argv.includes('--dry-run') ||
+    process.env.npm_config_dry_run === 'true' ||
+    Boolean(process.env.PB_DRY_RUN)
+  );
 
-// seed
-[
-  'index.html', 'manifest.webmanifest', 'favicon.ico', 'version.json', 'creditos.txt',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-96.png', 'icons/apple-touch-icon.png',
-  'assets/main-BcyzVqXo-mvilprw2.js',
-  'assets/modulepreload-polyfill-P2Xu9kJm-mvilprw2.js',
-  'assets/i18n-Bjw6RPm7-mvilprw2.js',
-].forEach(add);
+  const data = JSON.parse(
+    await readFile(path.join(ROOT, 'data/sprites.json'), 'utf8')
+      .catch(() => readFile('../pokebonk-re/mirror/data/sprites.json', 'utf8'))
+      .catch(() => '{}')
+  );
+  const items = JSON.parse(
+    await readFile(path.join(ROOT, 'data/items.json'), 'utf8')
+      .catch(() => readFile('../pokebonk-re/mirror/data/items.json', 'utf8'))
+      .catch(() => '{}')
+  );
 
-for (const f of ['pokemon', 'moves', 'learnsets', 'abilities', 'types', 'items', 'sprites']) add(`data/${f}.json`);
-for (const l of ['es', 'en', 'pt', 'fr', 'ja', 'zh', 'zht', 'ko', 'ru']) add(`data/i18n/${l}.json`);
+  // seed
+  [
+    INDEX,
+    'index.html',
+    'manifest.webmanifest',
+    'favicon.ico',
+    'version.json',
+    'creditos.txt',
+    'icons/icon-192.png',
+    'icons/icon-512.png',
+    'icons/favicon-96.png',
+    'icons/apple-touch-icon.png',
+    `assets/${ENTRY}`,
+    `assets/modulepreload-polyfill-P2Xu9kJm-${BUILD}.js`,
+    `assets/i18n-Bjw6RPm7-${BUILD}.js`,
+  ].forEach(add);
 
-const biomes = ['common', 'coast', 'desert', 'forest', 'frostlake', 'glacier', 'graveyard', 'ruins', 'sanctum', 'stormcape', 'tower', 'volcano'];
-for (const b of biomes) {
-  add(`assets/env/${b}/atlas.json`);
-  add(`assets/env/${b}/atlas.png`);
-  add(`assets/env/${b}/ground.png`);
-  add(`assets/env/${b}/cliff.png`);
-  add(`assets/env/${b}/path.png`);
+  for (const f of ['pokemon', 'moves', 'learnsets', 'abilities', 'types', 'items', 'sprites']) add(`data/${f}.json`);
+  for (const l of ['es', 'en', 'pt', 'fr', 'ja', 'zh', 'zht', 'ko', 'ru']) add(`data/i18n/${l}.json`);
+
+  const biomes = ['common', 'coast', 'desert', 'forest', 'frostlake', 'glacier', 'graveyard', 'ruins', 'sanctum', 'stormcape', 'tower', 'volcano'];
+  for (const b of biomes) {
+    add(`assets/env/${b}/atlas.json`);
+    add(`assets/env/${b}/atlas.png`);
+    add(`assets/env/${b}/ground.png`);
+    add(`assets/env/${b}/cliff.png`);
+    add(`assets/env/${b}/path.png`);
+  }
+
+  for (const id of Object.keys(data)) {
+    add(`assets/pmd/${id}.png`);
+    add(`assets/portraits/${id}.png`);
+    add(`assets/icons/${id}.png`);
+  }
+  for (let id = 1; id <= 1025; id++) add(`assets/cries/${id}.ogg`);
+  for (const k of Object.keys(items)) add(`assets/items/${k}.png`);
+  for (let i = 1; i <= 4; i++) add(`assets/music/ingame${i}.ogg`);
+  add('assets/music/boss.ogg');
+  add('assets/music/halloween-menu.ogg');
+
+  if (isDryRun) {
+    console.log(`[mirror] (dry-run) Target build: ${BUILD} (v${VERSION})`);
+    console.log(`[mirror] (dry-run) Entry chunk: assets/${ENTRY}`);
+    console.log(`[mirror] (dry-run) Index: ${INDEX}`);
+    console.log(`[mirror] (dry-run) Seed queue has ${queue.size} items. No network or write operations performed.`);
+    return { queue: [...queue], dryRun: true };
+  }
+
+  await mkdir(ROOT, { recursive: true });
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  console.log(`done ok=${ok} bytes=${bytes} failed=${failed.length}`);
+  await writeFile('mirror-report.json', JSON.stringify({ ok, bytes, failed }, null, 1));
 }
 
-for (const id of Object.keys(data)) {
-  add(`assets/pmd/${id}.png`);
-  add(`assets/portraits/${id}.png`);
-  add(`assets/icons/${id}.png`);
+const isDirectExecution = Boolean(process.argv[1] && path.resolve(fileURLToPath(import.meta.url)).toLowerCase() === path.resolve(process.argv[1]).toLowerCase());
+if (isDirectExecution) {
+  main().catch((err) => {
+    console.error('[mirror] FATAL:', err.message || err);
+    process.exit(1);
+  });
 }
-for (let id = 1; id <= 1025; id++) add(`assets/cries/${id}.ogg`);
-for (const k of Object.keys(items)) add(`assets/items/${k}.png`);
-for (let i = 1; i <= 4; i++) add(`assets/music/ingame${i}.ogg`);
-add('assets/music/boss.ogg');
-add('assets/music/halloween-menu.ogg');
-
-await mkdir(ROOT, { recursive: true });
-await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-console.log(`done ok=${ok} bytes=${bytes} failed=${failed.length}`);
-await writeFile('mirror-report.json', JSON.stringify({ ok, bytes, failed }, null, 1));

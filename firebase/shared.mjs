@@ -33,6 +33,8 @@ export function newProfile(name) {
     weekly: { idx: 0, ids: [], prog: [0, 0, 0], claimed: [0, 0, 0, 0], rerolls: 0 },
     dailyStreak: { last: 0, n: 0 }, bag: {}, avatar: '', frame: '', title: '',
     cosmetics: [], events: {},
+    // 0.8.27+: wardrobe looks, classic shinies and the 6-slot Team favourites
+    skins: [], classics: [], team: [],
   };
 }
 
@@ -158,4 +160,46 @@ export function boardFor(accounts, mode, season, limit, query, viewer) {
     players: rows.length, season: SEASON.n, ends: SEASON.end,
     info: seasonPayload(),
   };
+}
+
+/**
+ * Applies one batched profile action (`POST /profile/actions`) to a profile.
+ *
+ * 0.8.29 sends lab/item/archive/quest/task mutations through the batched
+ * endpoint — its API client always has `actions()`, so the per-feature routes
+ * are never called any more. Both backends (server.mjs, firebase/backend.mjs)
+ * share this reducer so the two paths cannot drift.
+ *
+ * Returns true only when the action actually mutated the profile.
+ */
+export function applyProfileAction(p, a) {
+  if (!p || !a || typeof a.k !== 'string') return false;
+  switch (a.k) {
+    case 'lab':
+      if (a.id === undefined || a.id === null || a.id === '') return false;
+      p.lab[a.id] = (p.lab[a.id] ?? 0) + 1;
+      return true;
+    case 'item':
+      if (!a.key) return false;
+      if (!p.itemsOwned.includes(a.key)) p.itemsOwned.push(a.key);
+      return true;
+    case 'archive':
+      if (!a.key) return false;
+      p.itemsOff = a.off
+        ? [...new Set([...p.itemsOff, a.key])]
+        : p.itemsOff.filter((k) => k !== a.key);
+      return true;
+    case 'quest':
+      if (!a.id) return false;
+      p.quests[a.id] = 1;
+      return true;
+    case 'task': {
+      const t = p[a.period];
+      if (!t || !Number.isInteger(a.slot) || a.slot < 0 || a.slot >= 4) return false;
+      t.claimed[a.slot] = 1;
+      return true;
+    }
+    default:
+      return false;
+  }
 }

@@ -1,0 +1,8 @@
+# Mirrored upstream build files are byte-exact artifacts: never normalise them.
+public/assets/** -text
+
+# Local tooling/docs: normal line endings are fine.
+*.mjs text=auto
+*.js text=auto
+*.md text=auto
+*.json text=auto

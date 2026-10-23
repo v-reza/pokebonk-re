@@ -27,9 +27,11 @@
 import crypto from 'node:crypto';
 import {
   now, token, newProfile, newAccount, hashPassword, checkPassword,
-  SEASON, EVENTS, seasonPayload, boardFor, json, body,
+  SEASON, EVENTS, seasonPayload, boardFor, json, body, applyProfileAction,
 } from './shared.mjs';
 import { socialRoutes, edgeKey, ONLINE_TTL } from './social.mjs';
+import { clanRoutes } from './clans.mjs';
+import { coopRoutes } from './coop.mjs';
 
 const SAVE_GAP_MS = 65 * 1000;             // debounced profile save gap
 const PRESENCE_MS = 30 * 60 * 1000;        // presence heartbeat gap
@@ -161,7 +163,7 @@ export function createBackend(db) {
     const b = (await body(req)) || {};
     const p = acc.profile;
     if (b.settings && typeof b.settings === 'object') p.settings = { ...p.settings, ...b.settings };
-    for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title', 'skins']) {
+    for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title', 'skins', 'team']) {
       if (b[k] !== undefined) p[k] = b[k];
     }
     await db.save(acc);
@@ -188,8 +190,7 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const p = acc.profile;
-    const lv = p.lab[b.id] ?? 0;
-    p.lab[b.id] = lv + 1;
+    applyProfileAction(p, { k: 'lab', id: b.id });
     await db.save(acc);
     json(res, 200, { profile: p });
   });
@@ -199,7 +200,7 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const p = acc.profile;
-    if (b.key && !p.itemsOwned.includes(b.key)) p.itemsOwned.push(b.key);
+    applyProfileAction(p, { k: 'item', key: b.key });
     await db.save(acc);
     json(res, 200, { profile: p });
   });
@@ -209,11 +210,7 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const p = acc.profile;
-    if (b.key) {
-      p.itemsOff = b.off
-        ? [...new Set([...p.itemsOff, b.key])]
-        : p.itemsOff.filter((k) => k !== b.key);
-    }
+    applyProfileAction(p, { k: 'archive', key: b.key, off: b.off });
     await db.save(acc);
     json(res, 200, { profile: p });
   });
@@ -223,7 +220,7 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const p = acc.profile;
-    if (b.id) p.quests[b.id] = 1;
+    applyProfileAction(p, { k: 'quest', id: b.id });
     await db.save(acc);
     json(res, 200, { profile: p });
   });
@@ -233,8 +230,7 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const p = acc.profile;
-    const t = p[b.period];
-    if (t && Number.isInteger(b.slot) && b.slot >= 0 && b.slot < 4) t.claimed[b.slot] = 1;
+    applyProfileAction(p, { k: 'task', period: b.period, slot: b.slot });
     await db.save(acc);
     json(res, 200, { profile: p });
   });
@@ -243,6 +239,20 @@ export function createBackend(db) {
     const acc = await requireAccount(req, res);
     if (!acc) return;
     json(res, 200, { profile: acc.profile });
+  });
+
+  // Batched profile mutations. The 0.8.29 client always has `backend.actions`,
+  // so it sends lab/item/archive/quest/task through here and never calls the
+  // per-feature routes above; without this route those purchases are lost.
+  route('POST', '/profile/actions', async (req, res) => {
+    const acc = await requireAccount(req, res);
+    if (!acc) return;
+    const b = (await body(req)) || {};
+    const list = Array.isArray(b.actions) ? b.actions.slice(0, 64) : [];
+    let applied = 0;
+    for (const a of list) if (applyProfileAction(acc.profile, a)) applied++;
+    await db.save(acc);
+    json(res, 200, { profile: acc.profile, applied });
   });
 
   route('GET', '/records', async (req, res) => {
@@ -316,12 +326,17 @@ export function createBackend(db) {
     if (!acc) return;
     const b = (await body(req)) || {};
     const id = await db.newRunId();
+    // Co-op: every member of a party must build the SAME world, so the seed
+    // belongs to the party, not to the individual ticket (0.8.29 sends `party`).
+    const seed = b.party
+      ? await db.coop().partySeed(String(b.party))
+      : (b.seed ?? crypto.randomInt(1, 2 ** 31));
     const run = {
       id, account: acc.id, cfg: b,
-      seed: b.seed ?? crypto.randomInt(1, 2 ** 31), started: now(),
+      seed, started: now(),
     };
     await db.putRun(run);
-    json(res, 200, { id, seed: run.seed, ranked: true, boosts: [] });
+    json(res, 200, { id, seed, party: b.party ?? null, ranked: true, boosts: [] });
   });
 
   route('GET', '/runs/:id/build', async (req, res, url, params) => {
@@ -397,21 +412,32 @@ export function createBackend(db) {
   route('POST', '/mail/:id/answer', (req, res) => json(res, 204, undefined));
   route('POST', '/mail/:id/claim', (req, res) => json(res, 204, undefined));
 
-  route('GET', '/clans/status', (req, res) => json(res, 200, { clan: null, mail: 0, requests: 0, friends: 0, rewards: 0, board: 0 }));
   route('GET', '/clans/board', (req, res) => json(res, 200, { entries: [], info: seasonPayload() }));
-  route('GET', '/clans/search', (req, res) => json(res, 200, { clans: [] }));
-  route('GET', '/clans/:id', (req, res) => json(res, 404, { error: 'Clan not found.' }));
-  route('GET', '/clans/:id/activity', (req, res) => json(res, 200, []));
-  route('GET', '/clans/:id/chat', (req, res) => json(res, 200, []));
-  route('POST', '/clans', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
-  route('POST', '/clans/chat', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
-  route('POST', '/clans/react', (req, res) => json(res, 204, undefined));
   route('POST', '/clans/claim', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
   route('POST', '/clans/expand', (req, res) => json(res, 400, { error: 'Clans are not available locally.' }));
+
+  // --- clans: creation, membership, guide/notice, management, succession.
+  // 0.8.29 added the guide, join requirements and leader succession; these are
+  // the routes its client calls (see firebase/clans.mjs for the wire contract).
+  for (const r of clanRoutes({
+    me: async (req, res) => requireAccount(req, res),
+    byName: (name) => db.byName(name),
+    byId: (id) => db.byId(id),
+    store: db.clans(),
+  }).routes) routes.push(r);
 
   // --- social (friends, presence, rooms, invites) — shared with server.mjs so
   // both backends answer identically. `db.social()` is the persistence adapter.
   for (const r of socialRoutes(socialApi(db)).routes) routes.push(r);
+
+  // --- co-op room service (their GT mesh signaling + lobby; see firebase/coop.mjs)
+  for (const r of coopRoutes({
+    me: async (req, res) => requireAccount(req, res),
+    byName: (name) => db.byName(name),
+    byId: (id) => db.byId(id),
+    store: db.coop(),
+    enabled: process.env.COOP_ENABLED !== '0',
+  }).routes) routes.push(r);
 
   route('POST', '/feedback', (req, res) => json(res, 204, undefined));
 
@@ -599,6 +625,62 @@ export class MemoryDB {
       };
     }
     return this._social;
+  }
+
+  /**
+   * Clan documents. Same adapter shape as `social()`; the Firestore adapter
+   * persists the identical objects in a `clans` collection.
+   */
+  clans() {
+    if (!this._clans) {
+      const byId = new Map();
+      const byName = new Map();
+      const byMember = new Map();
+      const reindex = () => {
+        byName.clear();
+        byMember.clear();
+        for (const clan of byId.values()) {
+          byName.set(clan.name.toLowerCase(), clan.id);
+          for (const uid of clan.memberIds) byMember.set(uid, clan.id);
+        }
+      };
+      this._clans = {
+        get: async (id) => byId.get(id) || null,
+        byName: async (name) => {
+          const id = byName.get(String(name || '').toLowerCase());
+          return id ? byId.get(id) || null : null;
+        },
+        byMember: async (uid) => {
+          const id = byMember.get(uid);
+          return id ? byId.get(id) || null : null;
+        },
+        list: async () => [...byId.values()],
+        save: async (clan) => { byId.set(clan.id, clan); reindex(); },
+        del: async (id) => { byId.delete(id); reindex(); },
+      };
+    }
+    return this._clans;
+  }
+
+  /** Co-op rooms + invites + party seeds (same shape as `clans()`). */
+  coop() {
+    if (!this._coop) {
+      const rooms = new Map(), invites = new Map(), parties = new Map();
+      this._coop = {
+        room: async (code) => rooms.get(String(code || '').toUpperCase()) || null,
+        roomOf: async (uid) => [...rooms.values()].find((r) => r.members.some((m) => m.id === uid)) || null,
+        saveRoom: async (room) => { rooms.set(room.code, room); },
+        delRoom: async (code) => { rooms.delete(String(code || '').toUpperCase()); },
+        invites: async (uid) => [...invites.values()].filter((i) => i.to === uid),
+        saveInvite: async (i) => { invites.set(i.id, i); },
+        delInvite: async (id) => { invites.delete(id); },
+        partySeed: async (party) => {
+          if (!parties.has(party)) parties.set(party, Math.floor(Math.random() * 2 ** 31));
+          return parties.get(party);
+        },
+      };
+    }
+    return this._coop;
   }
 
   async save(account) { /* mutated in place; nothing to persist */ }
@@ -935,6 +1017,119 @@ export class FirestoreDB {
       flush: () => {},
     };
     return this._social;
+  }
+
+  /** Co-op rooms, invites and party seeds (Firestore + in-process fallback). */
+  coop() {
+    if (!this._coopStore) {
+      const rooms = new Map(), invites = new Map(), parties = new Map();
+      const rdoc = (code) => this.db.collection('coop_rooms').doc(String(code));
+      const idoc = (id) => this.db.collection('coop_invites').doc(String(id));
+      const pdoc = (party) => this.db.collection('coop_parties').doc(String(party));
+      this._coopStore = {
+        room: async (code) => {
+          const key = String(code || '').toUpperCase();
+          try { const d = await rdoc(key).get(); if (d.exists) { rooms.set(key, d.data()); return d.data(); } } catch {}
+          return rooms.get(key) || null;
+        },
+        roomOf: async (uid) => {
+          for (const r of rooms.values()) if (r.members.some((m) => m.id === uid)) return r;
+          try {
+            const q = await this.db.collection('coop_rooms').where('memberIds', 'array-contains', uid).limit(1).get();
+            if (!q.empty) { const r = q.docs[0].data(); rooms.set(r.code, r); return r; }
+          } catch {}
+          return null;
+        },
+        saveRoom: async (room) => {
+          rooms.set(room.code, room);
+          await rdoc(room.code).set({ ...room, memberIds: room.members.map((m) => m.id) });
+        },
+        delRoom: async (code) => {
+          const key = String(code || '').toUpperCase();
+          rooms.delete(key);
+          await rdoc(key).delete().catch(() => {});
+        },
+        invites: async (uid) => {
+          try {
+            const q = await this.db.collection('coop_invites').where('to', '==', uid).get();
+            return q.docs.map((d) => d.data());
+          } catch { return [...invites.values()].filter((i) => i.to === uid); }
+        },
+        saveInvite: async (i) => { invites.set(i.id, i); await idoc(i.id).set(i).catch(() => {}); },
+        delInvite: async (id) => { invites.delete(id); await idoc(id).delete().catch(() => {}); },
+        partySeed: async (party) => {
+          if (parties.has(party)) return parties.get(party);
+          try {
+            const d = await pdoc(party).get();
+            if (d.exists) { parties.set(party, d.data().seed); return d.data().seed; }
+          } catch {}
+          const seed = Math.floor(Math.random() * 2 ** 31);
+          parties.set(party, seed);
+          await pdoc(party).set({ party, seed }).catch(() => {});
+          return seed;
+        },
+      };
+    }
+    return this._coopStore;
+  }
+
+  /** Clan documents: Firestore `clans/{id}` with an in-process fallback. */
+  clans() {
+    if (!this._clansStore) {
+      const mem = new Map();
+      const doc = (id) => this.db.collection('clans').doc(id);
+      const col = () => this.db.collection('clans');
+      const cache = (clan) => { if (clan) mem.set(clan.id, clan); return clan; };
+      this._clansStore = {
+        get: async (id) => {
+          try {
+            const s = await doc(id).get();
+            if (s.exists) return cache({ ...s.data() });
+          } catch { /* fall through to the instance map */ }
+          return mem.get(id) || null;
+        },
+        byName: async (name) => {
+          const lower = String(name || '').toLowerCase();
+          try {
+            const q = await col().where('nameLower', '==', lower).limit(1).get();
+            if (!q.empty) return cache({ ...q.docs[0].data() });
+          } catch { /* index unavailable */ }
+          for (const c of mem.values()) if (c.name.toLowerCase() === lower) return c;
+          return null;
+        },
+        byMember: async (uid) => {
+          try {
+            const q = await col().where('memberIds', 'array-contains', uid).limit(1).get();
+            if (!q.empty) return cache({ ...q.docs[0].data() });
+          } catch { /* index unavailable */ }
+          for (const c of mem.values()) if (c.memberIds.includes(uid)) return c;
+          return null;
+        },
+        list: async () => {
+          try {
+            const q = await col().limit(200).get();
+            return q.docs.map((d) => cache({ ...d.data() }));
+          } catch {
+            return [...mem.values()];
+          }
+        },
+        save: async (clan) => {
+          cache(clan);
+          // `nameLower`/`memberIds` are the queryable copies of data Firestore
+          // cannot index directly (case-insensitive name, membership).
+          await doc(clan.id).set({
+            ...clan,
+            nameLower: clan.name.toLowerCase(),
+            memberIds: [...clan.memberIds],
+          });
+        },
+        del: async (id) => {
+          mem.delete(id);
+          await doc(id).delete().catch(() => {});
+        },
+      };
+    }
+    return this._clansStore;
   }
 }
 

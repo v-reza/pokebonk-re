@@ -3,6 +3,8 @@
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BUILD, VERSION, ENTRY, INDEX } from './build-target.mjs';
 
 const ORIGIN = 'https://pokebonk.com';
 const ROOT = path.resolve('public');
@@ -13,7 +15,7 @@ let bytes = 0;
 
 const norm = (u) => u.replace(/^\.\//, '').replace(/\?.*$/, '').replace(/^\//, '');
 
-function enqueue(raw, base) {
+export function enqueue(raw, base) {
   if (!raw) return;
   if (/^(https?:|data:|blob:|#|mailto:)/.test(raw)) return;
   let u = raw.split('?')[0].split('#')[0];
@@ -25,7 +27,7 @@ function enqueue(raw, base) {
   queue.add(u);
 }
 
-async function save(u) {
+export async function save(u) {
   if (seen.has(u)) return;
   seen.add(u);
   const out = path.join(ROOT, u);
@@ -39,7 +41,7 @@ async function save(u) {
   await scanLocal(u, buf);
 }
 
-async function scanLocal(u, buf) {
+export async function scanLocal(u, buf) {
   if (!/\.(js|css|html|json|webmanifest)$/.test(u)) return;
   const text = buf ? buf.toString('utf8') : await readFile(path.join(ROOT, u), 'utf8').catch(() => '');
   if (!text) return;
@@ -58,7 +60,7 @@ async function scanLocal(u, buf) {
   }
 }
 
-async function drain() {
+export async function drain() {
   while (queue.size) {
     const batch = [...queue].splice(0, 24);
     batch.forEach((u) => queue.delete(u));
@@ -68,28 +70,54 @@ async function drain() {
   }
 }
 
-// seeds
-[
-  'index.html',
-  'manifest.webmanifest',
-  'favicon.ico',
-  'version.json',
-  'creditos.txt',
-  'icons/icon-192.png',
-  'icons/icon-512.png',
-  'icons/favicon-96.png',
-  'icons/apple-touch-icon.png',
-  'data/pokemon.json',
-  'data/moves.json',
-  'data/learnsets.json',
-  'data/abilities.json',
-  'data/types.json',
-  'data/items.json',
-  'data/sprites.json',
-  ...['es', 'en', 'pt', 'fr', 'ja', 'zh', 'zht', 'ko', 'ru'].map((l) => `data/i18n/${l}.json`),
-].forEach((u) => enqueue(u, '.'));
+export async function main(options = {}) {
+  const isDryRun = options.dryRun ?? (
+    process.argv.includes('--dry-run') ||
+    process.env.npm_config_dry_run === 'true' ||
+    Boolean(process.env.PB_DRY_RUN)
+  );
 
-await drain();
-console.log(`shell: ${seen.size} files, ${(bytes / 1048576).toFixed(1)} MiB, ${failed.length} failed`);
-if (failed.length) console.log(failed.slice(0, 20));
-await writeFile('mirror-report.json', JSON.stringify({ files: [...seen], failed }, null, 1));
+  // seeds
+  [
+    INDEX,
+    'index.html',
+    `assets/${ENTRY}`,
+    'manifest.webmanifest',
+    'favicon.ico',
+    'version.json',
+    'creditos.txt',
+    'icons/icon-192.png',
+    'icons/icon-512.png',
+    'icons/favicon-96.png',
+    'icons/apple-touch-icon.png',
+    'data/pokemon.json',
+    'data/moves.json',
+    'data/learnsets.json',
+    'data/abilities.json',
+    'data/types.json',
+    'data/items.json',
+    'data/sprites.json',
+    ...['es', 'en', 'pt', 'fr', 'ja', 'zh', 'zht', 'ko', 'ru'].map((l) => `data/i18n/${l}.json`),
+  ].forEach((u) => enqueue(u, '.'));
+
+  if (isDryRun) {
+    console.log(`[pull] (dry-run) Target build: ${BUILD} (v${VERSION})`);
+    console.log(`[pull] (dry-run) Entry chunk: assets/${ENTRY}`);
+    console.log(`[pull] (dry-run) Index: ${INDEX}`);
+    console.log(`[pull] (dry-run) Seed queue has ${queue.size} items. No network or write operations performed.`);
+    return { queue: [...queue], dryRun: true };
+  }
+
+  await drain();
+  console.log(`shell: ${seen.size} files, ${(bytes / 1048576).toFixed(1)} MiB, ${failed.length} failed`);
+  if (failed.length) console.log(failed.slice(0, 20));
+  await writeFile('mirror-report.json', JSON.stringify({ files: [...seen], failed }, null, 1));
+}
+
+const isDirectExecution = Boolean(process.argv[1] && path.resolve(fileURLToPath(import.meta.url)).toLowerCase() === path.resolve(process.argv[1]).toLowerCase());
+if (isDirectExecution) {
+  main().catch((err) => {
+    console.error('[pull] FATAL:', err.message || err);
+    process.exit(1);
+  });
+}

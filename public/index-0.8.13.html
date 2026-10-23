@@ -1,0 +1,2050 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      try {
+        const p = new URLSearchParams(location.search);
+        const urlLang = p.get('lang');
+        if (urlLang) {
+          localStorage.setItem('pokebonk.lang', urlLang);
+        } else if (!localStorage.getItem('pokebonk.lang')) {
+          localStorage.setItem('pokebonk.lang', 'en');
+        }
+      } catch {}
+    </script>
+    <meta name="pokebonk-build" content="mvilprw2">
+    <script data-pb-recovery="">// Inlined before the module entry by Vite: it must work even when that entry cannot load.
+(() => {
+  const build = document.querySelector('meta[name="pokebonk-build"]')?.content || 'unknown';
+  const texts = {"es":"Reintentar","en":"Retry","pt":"Tentar de novo","fr":"Réessayer","ja":"再試行","zh":"重试","zht":"重試","ko":"다시 시도","ru":"Повторить"};
+  const tag = document.documentElement.lang.toLowerCase();
+  const lang = tag === 'zh-hant' ? 'zht' : tag.split('-')[0];
+  const retryText = texts[lang] || texts.en;
+  let ready = false, recovering = false;
+  const urls = new Set();
+  const remember = (value) => {
+    try {
+      const url = new URL(value, location.href);
+      if (url.origin === location.origin && /\/assets\/.*\.(js|css)(\?.*)?$/.test(url.pathname + url.search)) urls.add(url.href);
+    } catch { /* An error without a resource URL. */ }
+  };
+  const navigate = () => {
+    const url = new URL(location.href);
+    url.searchParams.set('pb-reload', String(Date.now()));
+    location.replace(url.href);
+  };
+  const showRetry = () => {
+    if (document.getElementById('boot-retry')) return;
+    const card = document.createElement('div');
+    card.id = 'boot-retry';
+    card.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#1a1630;color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;font:700 24px system-ui;text-align:center';
+    const title = document.createElement('strong'); title.textContent = 'PokéBonk';
+    const btn = document.createElement('button'); btn.textContent = retryText;
+    btn.style.cssText = 'padding:14px 32px;border:0;border-radius:28px;background:#e94756;color:white;font:700 18px system-ui;cursor:pointer';
+    btn.onclick = () => { void refresh().finally(navigate); };
+    card.append(title, btn);
+    (document.body || document.documentElement).append(card);
+  };
+  const refresh = async () => {
+    document.querySelectorAll('script[type="module"][src],link[rel="stylesheet"][href],link[rel="modulepreload"][href]').forEach((el) => remember(el.src || el.href));
+    // cache:reload replaces a bad HTTP cache entry without clearing accounts or pending runs.
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+    try { await Promise.allSettled([...urls].map((url) => fetch(url, { cache: 'reload', signal: ctl.signal }))); }
+    finally { clearTimeout(timer); }
+  };
+  const recover = async () => {
+    if (ready || recovering) return;
+    recovering = true;
+    showRetry();
+    let once = false;
+    try {
+      const key = 'pb.bootRetry.' + build;
+      once = sessionStorage.getItem(key) !== '1';
+      sessionStorage.setItem(key, '1');
+    } catch { /* Storage unavailable: offer the button, do not risk a reload loop. */ }
+    if (once) { try { await refresh(); } finally { navigate(); } }
+  };
+  addEventListener('error', (event) => {
+    const target = event.target;
+    if (target?.tagName === 'SCRIPT' && target.type === 'module' || target?.tagName === 'LINK' && ['stylesheet', 'modulepreload'].includes(target.rel)) {
+      remember(target.src || target.href); void recover();
+    } else if (event.filename) {
+      remember(event.filename);
+      if (urls.size) void recover();
+    }
+  }, true);
+  addEventListener('vite:preloadError', (event) => {
+    if (ready) return;
+    // Let boot.ts catch the rejection; suppressing it would falsely mark a missing module as ready.
+    const message = String(event.payload?.message || '');
+    for (const url of message.match(/https?:\/\/[^\s"'<>]+/g) || []) remember(url);
+    void recover();
+  });
+  addEventListener('pokebonk:boot-failed', () => { void recover(); });
+  addEventListener('pokebonk:modules-ready', () => { ready = true; document.getElementById('boot-retry')?.remove(); });
+  // A stalled download/font/GPU initialization must still leave a usable action, without auto-reloading slow links.
+  setTimeout(() => { if (!ready) showRetry(); }, 45000);
+})();
+</script>
+
+    <meta charset="UTF-8" />
+    <!-- On touch screens core/touch.ts rewrites the viewport (landscape phones get a wider virtual one). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a1630" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <!-- Title, description, canonical, hreflang, Open Graph, Twitter and JSON-LD come from src/seo.ts (vite.config.ts). -->
+    <title>PokéBonk · Survivor 3D de Pokémon gratis en el navegador</title>
+    <meta name="description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://pokebonk.com/" />
+    <link rel="alternate" hreflang="es" href="https://pokebonk.com/?lang=es" />
+    <link rel="alternate" hreflang="en" href="https://pokebonk.com/?lang=en" />
+    <link rel="alternate" hreflang="pt" href="https://pokebonk.com/?lang=pt" />
+    <link rel="alternate" hreflang="fr" href="https://pokebonk.com/?lang=fr" />
+    <link rel="alternate" hreflang="ja" href="https://pokebonk.com/?lang=ja" />
+    <link rel="alternate" hreflang="zh-CN" href="https://pokebonk.com/?lang=zh" />
+    <link rel="alternate" hreflang="zh-TW" href="https://pokebonk.com/?lang=zht" />
+    <link rel="alternate" hreflang="ko" href="https://pokebonk.com/?lang=ko" />
+    <link rel="alternate" hreflang="ru" href="https://pokebonk.com/?lang=ru" />
+    <link rel="alternate" hreflang="x-default" href="https://pokebonk.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PokéBonk" />
+    <meta property="og:title" content="PokéBonk · Survivor 3D de Pokémon gratis en el navegador" />
+    <meta property="og:description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta property="og:url" content="https://pokebonk.com/" />
+    <meta property="og:image" content="https://pokebonk.com/social/card-es.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="PokéBonk: un bosque de mesetas con una Poké Ball en un altar. Survivor 3D gratis en el navegador." />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="pt_BR" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:locale:alternate" content="ja_JP" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta property="og:locale:alternate" content="ko_KR" />
+    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PokéBonk · Survivor 3D de Pokémon gratis en el navegador" />
+    <meta name="twitter:description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta name="twitter:image" content="https://pokebonk.com/social/card-es.jpg" />
+    <meta name="twitter:image:alt" content="PokéBonk: un bosque de mesetas con una Poké Ball en un altar. Survivor 3D gratis en el navegador." />
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://pokebonk.com/#website","name":"PokéBonk","url":"https://pokebonk.com/","inLanguage":["es","en","pt","fr","ja","zh-CN","zh-TW","ko","ru"]},{"@type":["VideoGame","WebApplication"],"@id":"https://pokebonk.com/#game","name":"PokéBonk","url":"https://pokebonk.com/","description":"Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.","image":"https://pokebonk.com/social/card-es.jpg","inLanguage":"es","isPartOf":{"@id":"https://pokebonk.com/#website"},"genre":["Survivor","Roguelite","Action"],"gamePlatform":"Web browser","playMode":"SinglePlayer","applicationCategory":"GameApplication","operatingSystem":"Any (WebGL)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"sameAs":["https://discord.gg/X7KusQqx8X"]}]}</script>
+    <meta name="application-name" content="PokéBonk" />
+    <meta name="apple-mobile-web-app-title" content="PokéBonk" />
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./icons/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <style id="pb-coop-hud-style">
+      #pb-party-panel {
+        position: absolute;
+        top: calc(140px * var(--hs, 1));
+        left: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 195px;
+        background: rgba(26, 22, 48, 0.88);
+        border: 1.5px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        font-family: var(--font-title, system-ui, sans-serif);
+        pointer-events: auto;
+        z-index: 10;
+        backdrop-filter: blur(4px);
+        transform-origin: 0 0;
+        scale: var(--hs, 1);
+        transition: gap 0.2s ease, padding 0.2s ease, width 0.2s ease;
+      }
+      #pb-party-panel.pb-collapsed {
+        gap: 0;
+        padding: 4px 8px;
+        width: auto;
+        max-width: 175px;
+      }
+      #pb-party-panel.pb-collapsed .pb-party-hpbar {
+        display: none;
+      }
+      .pb-party-row {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        transition: opacity 0.2s ease;
+      }
+      .pb-party-row.dead {
+        opacity: 0.7;
+      }
+      .pb-party-row-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        line-height: 1.1;
+      }
+      .pb-party-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        box-shadow: 0 0 4px currentColor;
+      }
+      .pb-conn-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #888;
+        border: 1px solid rgba(0, 0, 0, 0.6);
+        cursor: help;
+      }
+      .pb-conn-dot.pb-conn-direct { background: #3ddc84; }
+      .pb-conn-dot.pb-conn-relay { background: #ffcb3d; }
+      .pb-conn-dot.pb-conn-connecting { background: #9aa0a6; }
+      .pb-conn-dot.pb-conn-failed,
+      .pb-conn-dot.pb-conn-closed { background: #ff4a5a; }
+      .pb-party-name {
+        color: #fff;
+        font-size: 11px;
+        font-weight: 800;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pb-party-lvl {
+        color: #ffd23a;
+        font-size: 10px;
+        font-weight: 800;
+        flex-shrink: 0;
+      }
+      .pb-party-status {
+        font-size: 8px;
+        font-weight: 900;
+        padding: 1px 4px;
+        border-radius: 3px;
+        color: #fff;
+        background: #e94756;
+        flex-shrink: 0;
+        display: none;
+      }
+      .pb-party-status.reviving {
+        background: #f8b420;
+        animation: pbPulse 0.6s infinite alternate;
+      }
+      @keyframes pbPulse {
+        to { filter: brightness(1.4); }
+      }
+      .pb-party-hpbar {
+        height: 12px;
+        background: #2e2842;
+        border-radius: 999px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+      }
+      .pb-party-hp-fill {
+        position: absolute;
+        inset: 0;
+        transform-origin: 0;
+        border-radius: 999px;
+        background: linear-gradient(#7af0a0, #2ac860);
+        transition: transform 0.1s ease-out;
+      }
+      .pb-party-hpbar.mid .pb-party-hp-fill {
+        background: linear-gradient(#ffe07a, #f8b420);
+      }
+      .pb-party-hpbar.low .pb-party-hp-fill {
+        background: linear-gradient(#ff8a8a, #ec3040);
+        animation: pbPulse 0.5s infinite alternate;
+      }
+      .pb-party-hpbar.dead .pb-party-hp-fill {
+        background: #444;
+      }
+      .pb-party-hp-text {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      }
+      .pb-name-tag .n { display: block; text-align: center; }
+      .pb-name-tag .hp { display: block; height: 4px; margin: 2px 0 1px; border-radius: 3px; background: rgba(0, 0, 0, 0.55); overflow: hidden; }
+      .pb-name-tag .hp b { display: block; height: 100%; width: 100%; border-radius: 3px; background: #5fe08a; }
+      .pb-name-tag {
+        position: fixed;
+        pointer-events: none;
+        transform: translate(-50%, -100%);
+        padding: 2px 8px;
+        border-radius: 999px;
+        font: 800 11px system-ui, sans-serif;
+        color: #fff;
+        background: rgba(26, 22, 48, 0.85);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+        white-space: nowrap;
+        z-index: 9;
+      }
+      #pb-dc-banner {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%) scale(var(--hs, 1));
+        transform-origin: 50% 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background: linear-gradient(90deg, rgba(160, 24, 38, 0.92), rgba(100, 18, 30, 0.92));
+        border: 1.5px solid rgba(255, 120, 130, 0.6);
+        border-radius: 24px;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-family: var(--font-title, system-ui, sans-serif);
+        font-size: 13px;
+        font-weight: 800;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        pointer-events: auto;
+        backdrop-filter: blur(6px);
+      }
+      #pb-dc-banner .pb-dc-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: #fff;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+      }
+      #pb-dc-banner .pb-dc-close:hover {
+        background: rgba(255, 255, 255, 0.4);
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "net": "/net/net.mjs", "coop": "/net/coop.mjs", "signaling": "/net/signaling-local.mjs", "signaling-fb": "/net/signaling-firebase.mjs", "fbcfg": "/firebase/firebase-config.js" } }
+    </script>
+    <script type="module">
+      // Co-op bridge. Inert in single-player: nothing here runs until the game
+      // calls globalThis.__pbStartCoop(cfg) (or until __pb.run is set by the bundle).
+      import * as Net from 'net';
+      import { Coop, collectEnemySlots, serializeEnemyFrame, serializePlayerState, readEnemyFrame, num } from 'coop';
+      import { localDb } from 'signaling';
+      import { initAnonymous } from 'signaling-fb';
+      import { firebaseConfig } from 'fbcfg';
+
+      const R = {
+        _run: null, coop: null, game: null, db: null, room: null, members: [], pendingCoop: null,
+        runCfg: null, holding: false, holdTimer: 0, startTap: null
+      };
+
+      // The bundle sets `globalThis.__pb.run = this.run` when a run starts (and
+      // `= null` when it finishes). React to a run appearing so a room that was
+      // created/joined BEFORE the single-player run exists can begin co-op then.
+      Object.defineProperty(R, 'run', {
+        get() { return this._run; },
+        set(v) {
+          this._run = v;
+          this.holding = false;
+          this.goldSeen = null; this.watch = null; this.pkMap = null; this.reviveP = 0; this.allDownT = 0;
+          this.mirrors = null; this.buildSent = null;
+          if (v) tapVfx(v);
+          clearTimeout(this.holdTimer);
+          if (v && this.pendingCoop) beginCoop(this.pendingCoop);
+          if (!v) {
+            this.runCfg = null;
+            if (globalThis.__pbCoopUI && globalThis.__pbCoopUI.runEnded) globalThis.__pbCoopUI.runEnded();
+            const p = document.getElementById('pb-party-panel');
+            if (p) p.style.display = 'none';
+          }
+        }
+      });
+
+      // `?local=1` (or setting window.__pbUseLocal = true) selects the in-memory
+      // SSE relay (net/signaling-local.mjs) instead of Firebase. Defaults to Firebase.
+      if (globalThis.__pbUseLocal !== true) {
+        const qs = new URL(location.href).searchParams;
+        const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        globalThis.__pbUseLocal = isLocalHost && (qs.has('local') || qs.get('coop') === 'local');
+      }
+
+      globalThis.__pb = R;
+      globalThis.__pbNet = Net;
+      globalThis.__pbCoop = { Coop, collectEnemySlots, serializeEnemyFrame, serializePlayerState, readEnemyFrame };
+      globalThis.__pbLocalDb = localDb;
+
+      // Lazily mint the signaling db handle net.mjs's init() consumes.
+      // Firebase (anonymous auth) by default; the local SSE relay when __pbUseLocal.
+      async function ensureDb() {
+        if (R.db) return R.db;
+        if (globalThis.__pbUseLocal) {
+          const uid = R.room ? R.room.uid : 'guest-' + Math.random().toString(36).slice(2, 10);
+          R.db = { ...localDb(uid), isLocal: true };
+          return R.db;
+        }
+        const h = await initAnonymous(firebaseConfig);   // { rtdb, uid, auth, ServerValue, firebase }
+        R.db = { rtdb: h.rtdb, uid: h.uid, auth: h.auth, ServerValue: h.ServerValue, firebase: h.firebase };
+        return R.db;
+      }
+      globalThis.__pbEnsureDb = ensureDb;
+
+      // coop-ui.mjs (and any caller) uses this to publish the live member list
+      // and keep net.mjs's host-side peer set in sync with the room.
+      globalThis.__pbSetMembers = function (members) {
+        R.members = Array.isArray(members) ? members : [];
+        if (Net.isOpen() && Net.isHostNow()) {
+          Net.syncMembers(R.members.map(m => m.uid));
+        }
+      };
+
+      // Map a Yg player to the wire state object (see coop.mjs P table).
+      function stateOfPlayer(pl) {
+        if (!pl) return null;
+        const pos = pl.pos || {};
+        const f = pl.facing || {};
+        const a = Math.atan2(f.x || 0, f.y || 1);
+        return {
+          x: pos.x || 0, y: pos.z || 0, angle: a,
+          walking: (pl.speedNow || 0) > 0.1 ? 1 : 0,
+          hp: pl.hp, maxHp: pl.maxHp, dead: pl.dead ? 1 : 0, level: pl.level || 1,
+          aim: a, xpMul: pl.bonusDamageMult ? pl.bonusDamageMult() : 1,
+          // Seconds left until we are back up (0 = nobody is helping).
+          reviveT: pl.dead && R.reviveP > 0 ? REVIVE_TIME - R.reviveP : 0, choosing: 0, doneSeq: 0, watching: '',
+          // What the others must draw for us: our CURRENT species (evolutions
+          // included) and skin. See coop.mjs P.DEX / P.SHINY.
+          dex: pl.speciesId | 0, shiny: pl.run && pl.run.shinySkin ? 1 : 0
+        };
+      }
+
+      /** Wire row for one live host enemy, as the 'ne' event (see Coop.enemyAdded). */
+      const r2 = v => Math.round(v * 100) / 100;
+      const NEAR_R = 70;                 // enemy radius sent around a guest (coop.mjs NEAR)
+      const dirOfXZ = (fx, fz) => (fx === 0 && fz === 0 ? 0 : ((Math.round((Math.atan2(fx, fz) + Math.PI) / (Math.PI / 4)) % 8) + 8) % 8);
+      function enemyEvent(sd, i) {
+        const f = sd.flags[i];
+        return ['ne', i, sd.species[i], r2(sd.x[i]), r2(sd.z[i]), f & 4 ? 1 : 0, f & 2048 ? 1 : 0,
+          Math.ceil(sd.maxHp[i]), r2(sd.dmg[i]), f];
+      }
+
+      // ---------------------------------------------------------------------
+      // Shared world (bundle patches B1-B5): enemy targets, projectiles,
+      // pickups, downed/revive, camera.
+      // ---------------------------------------------------------------------
+      const GHOST = 536870912;           // projectile flag: drawn, never hits (patch B3)
+      const PICKUP_NEAR = 45;            // m around a guest whose pickups it sees
+      const REVIVE_TIME = 4;             // s next to a teammate to get back up
+      const REVIVE_RANGE = 3;            // m
+      const FIRE_RATE = 40;              // own shots per second sent as ghosts, at most
+
+      /** Tower progress as one number (floor 7 has a roof step before 8). */
+      function towerKey(r) { return r.tower ? (r.tower.floor | 0) * 2 + (r.tower.roof ? 1 : 0) : 0; }
+
+      /** Players an enemy may go for: us and every connected teammate standing. */
+      function* livePlayers(run) {
+        if (run.player && !run.player.dead) yield run.player;
+        const coop = run.coop;
+        if (!coop || !coop.active) return;
+        for (const m of coop.mates.values()) {
+          const p = m.pl;
+          if (m.connected && p && p.pos && !p.dead && typeof p.render === 'function') yield p;
+        }
+      }
+
+      /**
+       * The same list as an array, built once per simulation step: the enemy and
+       * pickup loops ask for every enemy/gem on every frame, and a generator per
+       * call was garbage the GC had to sweep (late-run stutter).
+       */
+      function liveList(run) {
+        if (R.lpRun !== run || R.lpTime !== run.time) {
+          R.lpRun = run; R.lpTime = run.time;
+          const a = R.lpArr || (R.lpArr = []);
+          a.length = 0;
+          for (const p of livePlayers(run)) a.push(p);
+        }
+        return R.lpArr;
+      }
+
+      /** Host: the living player nearest to (x, z); our own player if nobody stands. */
+      globalThis.__pbCoopTarget = (run, x, z) => {
+        const list = liveList(run);
+        if (list.length < 2) return list[0] || run.player;
+        let best = run.player, bd = Infinity;
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i], dx = p.pos.x - x, dz = p.pos.z - z, d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = p; }
+        }
+        return best;
+      };
+
+      /**
+       * Bundle patch C6 (altars that charge while you stand in them). Host: the
+       * charge follows the NEAREST player, so a guest charges it too; the host
+       * reports the charge to the guests a few times a second. Guest: never
+       * charges locally (false), it only draws the ring.
+       */
+      globalThis.__pbAltar = (store, e, dist, dt) => {
+        const run = store.run, coop = run && run.coop;
+        if (!coop || !coop.active) return dist;
+        if (!coop.isHost) return false;
+        let d = dist;
+        for (const p of liveList(run)) d = Math.min(d, Math.hypot(p.pos.x - e.x, p.pos.z - e.z));
+        const c = r2(e.charge || 0), now = performance.now();
+        if (c !== (e.__sentC ?? 0) && now - (e.__sentAt || 0) > 250) {
+          e.__sentC = c; e.__sentAt = now;
+          coop.emit(['ic', r2(e.x), r2(e.z), c]);
+        }
+        return d;
+      };
+      /** Host: an altar completed: every player gets the blessing. */
+      globalThis.__pbAltarDone = (run, e, name, min, offers, picks) => {
+        const coop = run.coop;
+        if (!coop || !coop.active || !coop.isHost) return;
+        coop.emit(['iu', e.kind, r2(e.x), r2(e.z)]);
+        coop.emit(['bless', String(name || '').slice(0, 60), min | 0, offers | 0, picks | 0]);
+      };
+
+      /** A projectile's fire() parameters, as a compact wire row and back. */
+      const PJ = ['x', 'y', 'z', 'dx', 'dy', 'dz', 'speed', 'life', 'radius', 'dmg', 'flags', 'size',
+        'shape', 'color', 'knock', 'fx', 'trail', 'pierce', 'bounce', 'explodeR', 'statusChance'];
+      function packProjectile(e) {
+        const row = PJ.map(k => (typeof e[k] === 'number' && Number.isFinite(e[k]) ? r2(e[k]) : null));
+        row.push(typeof e.type === 'string' ? e.type : null, typeof e.cls === 'string' ? e.cls : null,
+          typeof e.status === 'string' ? e.status : null);
+        return row;
+      }
+      function projectileOf(row) {
+        if (!Array.isArray(row) || row.length !== PJ.length + 3) return null;
+        const e = { net: true };
+        PJ.forEach((k, i) => { if (typeof row[i] === 'number' && Number.isFinite(row[i])) e[k] = row[i]; });
+        if (!Number.isFinite(e.x) || !Number.isFinite(e.z) || !Number.isFinite(e.speed) || !Number.isFinite(e.life)) return null;
+        e.y ??= 1; e.dx ??= 0; e.dz ??= 0; e.radius ??= 0.4; e.dmg ??= 0; e.flags = (e.flags | 0);
+        e.life = Math.min(e.life, 8);
+        const [type, cls, status] = row.slice(PJ.length);
+        if (typeof type === 'string') e.type = type.slice(0, 16);
+        if (typeof cls === 'string') e.cls = cls.slice(0, 16);
+        if (typeof status === 'string') e.status = status.slice(0, 16);
+        return e;
+      }
+
+      /** Bundle patch B3: every projectile fired on this screen. */
+      globalThis.__pbFire = (run, e) => {
+        const coop = run && run.coop;
+        if (!coop || !coop.active || (e.flags | 0) & GHOST) return;
+        if ((e.flags | 0) & 1) {                       // an enemy shot (host only)
+          if (coop.isHost && e.from != null && e.from >= 0) coop.shot(packProjectile(e), e.from, e.x, e.z);
+          return;
+        }
+        if (e.slot != null && e.slot >= 10 && !coop.isHost) return;   // allies only exist on the host
+        const now = performance.now();
+        R.fireTokens = Math.min(FIRE_RATE, (R.fireTokens ?? FIRE_RATE) + (now - (R.fireAt || now)) / 1000 * FIRE_RATE);
+        R.fireAt = now;
+        if (R.fireTokens < 1) return;
+        R.fireTokens--;
+        coop.fired(packProjectile(e));
+      };
+
+      /**
+       * Bundle patch B4 (host): a teammate's puppet reached a pickup. Team
+       * things (XP, coins, keys, bombs, magnets, rare candies) apply here, where
+       * the team state lives; a berry or a TM goes to that teammate.
+       */
+      globalThis.__pbRemoteCollect = (run, pk, e, who, kind) => {
+        const coop = run.coop;
+        if (!coop || !coop.isHost) return false;
+        const m = coop.mates.get(who.uid);
+        const v = pk.value[e];
+        pk.alive[e] = 0; pk.free.push(e); pk.count--;
+        switch (kind) {
+          case 'xp': run.player.addXp(v); break;
+          case 'coin': run.addGold(v); break;
+          case 'heal': if (m) coop.toMate(m.uid, ['heal', 0.25]); break;
+          case 'magnet': pk.magnetAll = 4 * run.player.stats.powerup; break;
+          case 'bomb': run.nuke(); break;
+          case 'repel': run.repel(); break;
+          case 'candy': run.player.gainLevel(); break;
+          case 'chestkey': run.keys++; break;
+          default: if (m && typeof kind === 'string') coop.toMate(m.uid, ['item', kind]);
+        }
+        return true;
+      };
+
+      /** Guest: draw the host's pickups around us from its snapshot. */
+      function syncPickups(run, rows) {
+        if (!run || !Array.isArray(rows)) return;
+        const pk = run.pickups;
+        if (R.pkRun !== run || R.pkStore !== pk) { R.pkRun = run; R.pkStore = pk; R.pkMap = new Map(); }
+        const map = R.pkMap, seen = new Set();
+        const drop = a => { if (pk.alive[a]) { pk.alive[a] = 0; pk.free.push(a); pk.count--; } };
+        for (const row of rows) {
+          if (!Array.isArray(row)) continue;
+          const hs = num(row[0], -1, -1, 1e6), kind = num(row[1], 0, 0, 255) | 0;
+          const x = num(row[2], 0, -1e5, 1e5), z = num(row[3], 0, -1e5, 1e5), v = num(row[4], 1, 0, 1e7);
+          let a = map.get(hs);
+          if (a == null || !pk.alive[a] || pk.kind[a] !== kind) {
+            if (a != null) drop(a);
+            a = pk.spawn('xp', x, 0, z, v);
+            if (a == null) continue;
+            pk.kind[a] = kind;
+            map.set(hs, a);
+          }
+          pk.x[a] = x; pk.z[a] = z; pk.y[a] = run.terrain.surface(x, z) + 0.45;
+          pk.vx[a] = pk.vy[a] = pk.vz[a] = 0; pk.value[a] = v; pk.age[a] = 1; pk.rest[a] = 1; pk.attract[a] = 0;
+          seen.add(hs);
+        }
+        for (const [hs, a] of map) if (!seen.has(hs)) { drop(a); map.delete(hs); }
+      }
+
+      /** Get a downed player back up with `frac` of its max HP. */
+      function standUp(run, frac) {
+        const p = run.player;
+        p.dead = false; p.hp = Math.max(1, p.maxHp * frac); p.iframes = Math.max(p.iframes || 0, 2);
+        R.reviveP = 0;
+      }
+
+      /**
+       * Bundle patch B5: our Pokémon fainted. In co-op it is DOWNED instead of
+       * ending the run (PokéSurvivor's rule): it stays on the field, a teammate
+       * standing next to it for REVIVE_TIME brings it back, and the host ends the
+       * run only once everyone is down (see tickDowned).
+       */
+      globalThis.__pbDowned = (run) => {
+        const coop = run.coop;
+        if (!coop || !coop.active || run.regionCleared) return false;
+        R.reviveP = 0;
+        if (run.ui) run.ui.toast('You are down! Stay next to a teammate to get back up', null);
+        return true;
+      };
+
+      /** While down, the camera follows a teammate who is still standing. */
+      globalThis.__pbCamPos = (run) => {
+        const p = run.player;
+        if (!p.dead || !run.coop || !run.coop.active) return p.pos;
+        let w = R.watch;
+        if (!w || w.dead || !w.pos) {
+          w = null;
+          for (const q of livePlayers(run)) if (q !== p) { w = q; break; }
+          R.watch = w;
+        }
+        return w ? w.pos : p.pos;
+      };
+
+      // ---------------------------------------------------------------------
+      // Visuals (bundle patch C1): each player's OWN effects (moves, items:
+      // `Ic.own`) are replayed on its teammates; the host also sends the
+      // enemies' big ones (boss telegraphs, rings, lightning, flashes) to the
+      // guests near them. A hostile telegraph carries the damage it stands for:
+      // when it lands, a guest standing in it takes the hit on its own screen.
+      // ---------------------------------------------------------------------
+      const VFX_TAP = ['ring', 'flash', 'lightning', 'telegraph', 'burst'];
+      const VFX_HOSTILE = new Set(['ring', 'flash', 'lightning', 'telegraph']);
+      const VFX_RATE = 30;               // per second, per kind (own / hostile)
+      const STRONG = 1 | 2 | 4 | 4096 | 8192 | 12288 | 16384;   // elite, miniboss, boss... flags
+
+      function bucket(key) {
+        const now = performance.now(), b = (R[key] ||= { n: VFX_RATE, at: now });
+        b.n = Math.min(VFX_RATE, b.n + (now - b.at) / 1000 * VFX_RATE); b.at = now;
+        if (b.n < 1) return false;
+        b.n--; return true;
+      }
+
+      /** Damage a hostile telegraph at (x, z) stands for: the strong enemy casting it. */
+      function telegraphDmg(run, x, z) {
+        const sd = run.enemies;
+        let best = -1, bd = 30 * 30;
+        for (let i = 0; i < sd.n; i++) {
+          if (!sd.alive[i] || sd.remote[i] || !(sd.flags[i] & STRONG)) continue;
+          const dx = sd.x[i] - x, dz = sd.z[i] - z, d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+        return best < 0 ? 0 : r2(sd.dmg[best] * run.diff.enemyDamage * 1.4);
+      }
+
+      function tapVfx(run) {
+        const v = run.vfx;
+        if (!v || v.__pbTapped) return;
+        v.__pbTapped = true;
+        for (const name of VFX_TAP) {
+          const orig = v[name];
+          if (typeof orig !== 'function') continue;
+          v[name] = function (...a) {
+            try { vfxOut(run, name, a); } catch (e) { /* never break the effect */ }
+            return orig.apply(this, a);
+          };
+        }
+      }
+
+      function vfxOut(run, name, a) {
+        const coop = run.coop;
+        if (R.replaying || !coop || !coop.active || run !== R.run) return;
+        const own = !!(globalThis.__pbIc && globalThis.__pbIc.own);
+        if (!own && !(coop.isHost && VFX_HOSTILE.has(name))) return;
+        // Rate limit FIRST: in a big fight most calls are dropped, so do not
+        // format their arguments at all.
+        if (!bucket(own ? 'vxOwn' : 'vxHostile')) return;
+        const args = a.map(x => (typeof x === 'number' && Number.isFinite(x) ? r2(x) : null));
+        while (args.length && args[args.length - 1] == null) args.pop();
+        if (own) {
+          if (coop.isHost) coop.emitNear(['vx', name, args], a[0], a[2], null, 60);
+          else if (coop.outEv.length < 200) coop.outEv.push(['vx', name, args]);
+        } else {
+          const dmg = name === 'telegraph' ? telegraphDmg(run, a[0], a[2]) : 0;
+          coop.emitNear(['vx', name, args, dmg], a[0], a[2], null, 60);
+        }
+      }
+
+      function vfxIn(run, name, args, dmg) {
+        if (!VFX_TAP.includes(name) || !Array.isArray(args) || args.length > 12) return;
+        const a = args.map(x => (typeof x === 'number' && Number.isFinite(x) ? x : undefined));
+        if (a[0] == null || a[2] == null) return;
+        R.replaying = true;
+        try { run.vfx[name](...a); } catch (e) { /* bad args: skip */ } finally { R.replaying = false; }
+        // A hostile area: where it lands, a guest inside it is hit.
+        if (name === 'telegraph' && dmg > 0) {
+          const x = a[0], z = a[2], rad = a[3] || 2, life = Math.min(4, a[5] || 0.8);
+          run.later(life, () => {
+            const p = run.player;
+            if (!p || p.dead || R.run !== run) return;
+            const dx = p.pos.x - x, dz = p.pos.z - z;
+            if (dx * dx + dz * dz < rad * rad) p.hurt(Math.min(dmg, p.maxHp * 0.6), 'normal', -1, x, z, !1, 0, -1, {});
+          });
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // World objects (bundle patches A18/C3/C4): the host runs them and keeps
+      // everyone's copy in step.
+      // ---------------------------------------------------------------------
+      const WORLD = /^(boss|shrine|portal|challenge|cursed|nest|tower|greed|altar)$/;
+      const near = (it, kind, x, z, d = 1.5) => it.kind === kind && Math.abs(it.x - x) < d && Math.abs(it.z - z) < d;
+
+      globalThis.__pbGuestInteract = (run, e) => {
+        const now = performance.now();
+        if (e.__askedAt && now - e.__askedAt < 1500) return;
+        e.__askedAt = now;
+        run.coop.toHost(['ia', e.kind, r2(e.x), r2(e.z)]);
+      };
+      globalThis.__pbIu = (run, e) => {
+        const coop = run.coop;
+        if (coop && coop.isHost && e.used) coop.emit(['iu', e.kind, r2(e.x), r2(e.z)]);
+      };
+      globalThis.__pbIa = (store, kind, x, z, opts) => {
+        const run = store.run, coop = run && run.coop;
+        if (R.iaReplaying || !coop || !coop.isHost || run.state === 'transition' || typeof kind !== 'string') return;   // zone (re)builds are seeded: no mirror
+        let o = {};
+        try { const j = JSON.stringify(opts || {}); if (j.length < 3000) o = JSON.parse(j); } catch (e) { o = {}; }
+        coop.emit(['i+', kind, r2(x), r2(z), o]);
+      };
+      globalThis.__pbIr = (store, e) => {
+        const run = store.run, coop = run && run.coop;
+        if (R.iaReplaying || !coop || !coop.isHost || !WORLD.test(e.kind)) return;
+        coop.emit(['i-', e.kind, r2(e.x), r2(e.z)]);
+      };
+
+      function worldEvent(run, ev) {
+        const ia = run.interactables, [k, kind, x, z] = ev;
+        if (!ia || typeof kind !== 'string') return;
+        const it = ia.list.find(i => near(i, kind, x, z));
+        if (k === 'iu') {
+          if (it && !it.used) { it.used = true; try { ia.dim(it); } catch (e) { /* no glow */ } }
+        } else if (k === 'i-') {
+          if (it) { R.iaReplaying = true; try { ia.remove(it); } finally { R.iaReplaying = false; } }
+        } else if (k === 'i+') {
+          if (ia.list.some(i => near(i, kind, x, z, 0.7))) return;
+          R.iaReplaying = true;
+          try {
+            const made = ia.add(kind, x, z, ev[4] && typeof ev[4] === 'object' ? ev[4] : {});
+            if (made && kind === 'portal') { made.data ||= {}; made.data.openT ??= 0; }
+          } catch (e) { console.warn('[coop] world object', kind, e); } finally { R.iaReplaying = false; }
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // The host's allies, mirrored on guests (bundle patch C2).
+      // ---------------------------------------------------------------------
+      function allyList(run, m) {
+        const v = m && m.pl, px = v && v.pos ? v.pos.x : 0, pz = v && v.pos ? v.pos.z : 0, out = [];
+        for (const a of (run.allies && run.allies.list) || []) {
+          if (!a || !Number.isFinite(a.x) || out.length >= 8) continue;
+          if ((a.x - px) ** 2 + (a.z - pz) ** 2 > 80 * 80) continue;
+          const walk = a.hop > 0 || Math.hypot(a.x - run.player.pos.x, a.z - run.player.pos.z) > 3;
+          out.push([a.species | 0, r2(a.x), r2(a.z), r2(a.fx || 0), r2(a.fz || 1), walk ? 1 : 0]);
+        }
+        return out;
+      }
+      function syncAllies(list) {
+        const old = R.mirrors || [];
+        R.mirrors = list.filter(Array.isArray).slice(0, 8).map((a, i) => {
+          const o = old[i] && old[i].sp === a[0] ? old[i] : { sp: a[0] | 0, x: num(a[1], 0, -1e5, 1e5), z: num(a[2], 0, -1e5, 1e5), anim: 0 };
+          o.tx = num(a[1], 0, -1e5, 1e5); o.tz = num(a[2], 0, -1e5, 1e5);
+          o.fx = num(a[3], 0, -1, 1); o.fz = num(a[4], 1, -1, 1); o.walk = !!a[5];
+          return o;
+        });
+      }
+      /** Guest: point the HUD's boss / mini-boss bars at our copies of the host's. */
+      function syncBoss(run, bs) {
+        if (!run || !run.boss) return;
+        const b = run.boss, sd = run.enemies;
+        const local = bs && Array.isArray(bs.b) ? localSlotOf(bs.b[0]) : null;
+        if (local != null && sd.alive[local]) {
+          b.bossIndex = local; b.bossGen = sd.gen[local];
+          b.name = String(bs.b[1] || ''); b.moveName = String(bs.b[2] || '');
+          b.moveT = num(bs.b[3], 0, 0, 60);   // (`immune` is a getter of the boss: not ours to set)
+        } else if (b.bossIndex >= 0) b.bossIndex = -1;
+        if (!run.minibosses) return;
+        const minis = [];
+        for (const a of (bs && Array.isArray(bs.m) ? bs.m : [])) {
+          const i = localSlotOf(a[0]);
+          if (i == null || !sd.alive[i]) continue;
+          const old = (run.minibosses.list || []).find(o => o.i === i && o.__mirror);
+          const o = old || { __mirror: true, minions: [] };
+          o.i = i; o.gen = sd.gen[i]; o.species = sd.species[i];
+          o.name = String(a[1] || ''); o.kind = String(a[2] || ''); o.moveName = String(a[3] || '');
+          o.moveT = num(a[4], 0, 0, 60); o.life = num(a[5], 0, 0, 1e4); o.minions.length = num(a[6], 0, 0, 99) | 0;
+          minis.push(o);
+        }
+        run.minibosses.list = minis;
+      }
+
+      globalThis.__pbRenderMirrors = (run) => {
+        const coop = run.coop;
+        if (!coop || !coop.active || coop.isHost || !R.mirrors || !R.mirrors.length) return;
+        const t = run.sprites, dt = Math.min(0.1, run.realDt || 0.016), k = Math.min(1, dt * 12);
+        for (const a of R.mirrors) {
+          a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k;
+          a.anim += dt * (a.walk ? 0.8 : 0.6);
+          const y = run.terrain.surface(a.x, a.z), s = t.get(a.sp);
+          if (!s) continue;
+          s.push(a.x, y, a.z, a.walk ? 'walk' : 'idle', a.anim, t.dirRow(a.fx, a.fz), 1.15, 0, 0, 0, 0, 1, 1, 1, 0, !1);
+          t.shadows.push(a.x, y, a.z, 1.3);
+        }
+      };
+
+      // ---------------------------------------------------------------------
+      // Rejoin keeps your build: a guest sends it to the host every few
+      // seconds; when it comes back (new session), the host hands it back.
+      // ---------------------------------------------------------------------
+      function buildOf(p) {
+        return {
+          sp: p.speciesId | 0, evo: p.evoStage | 0, slots: p.moveSlots | 0,
+          mv: p.moves.map(m => (m && m.def ? [m.def.id, m.level | 0, { ...m.mods }, [...(m.parents || [])]] : null)),
+          it: [...p.items].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)),
+          vit: [...(p.vitamins || [])].map(([k, v]) => [k, v.level | 0, +v.acc || 0]),
+          rv: p.revives | 0,
+        };
+      }
+      function sendBuild(run) {
+        const coop = run.coop, now = performance.now();
+        if (coop.isHost || run.state === 'transition' || run.state === 'over' || now - (R.buildAt || 0) < 3000) return;
+        R.buildAt = now;
+        const b = buildOf(run.player), j = JSON.stringify(b);
+        if (j === R.buildSent || j.length > 20000) return;
+        R.buildSent = j;
+        coop.toHost(['bd', b]);
+      }
+      function restoreBuild(run, b) {
+        if (!b || typeof b !== 'object' || R.restoredRun === run) return;
+        R.restoredRun = run;
+        const p = run.player;
+        try {
+          if (b.sp > 0 && b.sp !== p.speciesId) p.setSpecies(b.sp);
+          if (Number.isInteger(b.evo)) p.evoStage = b.evo;
+          if (b.slots > p.moveSlots) p.moveSlots = b.slots;
+          if (Array.isArray(b.mv)) {
+            for (let i = 0; i < p.moves.length; i++) p.moves[i] = null;
+            b.mv.forEach((m, i) => {
+              if (!Array.isArray(m) || i >= p.moves.length) return;
+              if (!p.addMove(m[0])) return;
+              const at = p.moves.findIndex((x, k) => x && x.def.id === m[0] && !x.__restored);
+              const slot = p.moves[at];
+              if (at !== i) { p.moves[at] = p.moves[i]; p.moves[i] = slot; }
+              slot.__restored = true;
+              slot.level = Math.max(1, m[1] | 0);
+              if (m[2] && typeof m[2] === 'object') Object.assign(slot.mods, m[2]);
+              if (Array.isArray(m[3])) slot.parents = m[3].slice(0, 8);
+            });
+          }
+          if (Array.isArray(b.it)) { p.items.clear(); for (const [k, v] of b.it) if (typeof k === 'string') p.items.set(k, num(v, 1, 1, 99)); }
+          if (Array.isArray(b.vit) && p.vitamins) { p.vitamins.clear(); for (const [k, l, a] of b.vit) if (typeof k === 'string') p.vitamins.set(k, { level: num(l, 1, 1, 99), acc: num(a, 0, 0, 1e9) }); }
+          p.revives = num(b.rv, p.revives | 0, 0, 99);
+          p.recompute();
+          p.hp = p.maxHp;
+          if (run.ui) run.ui.toast('Welcome back! Your Pokémon, moves and items are restored', null);
+        } catch (e) { console.warn('[coop] restore build', e); }
+      }
+
+      /** Every frame: revive progress, and (host) the end once all are down. */
+      function tickDowned(run) {
+        const coop = run.coop, p = run.player;
+        const dt = Math.min(0.1, run.realDt || 0.016);
+        if (run.state !== 'play' && run.state !== 'modal') return;
+        if (p.dead && run.state === 'play') {
+          let helper = false;
+          for (const q of livePlayers(run)) {
+            if (q === p) continue;
+            const dx = q.pos.x - p.pos.x, dz = q.pos.z - p.pos.z;
+            if (dx * dx + dz * dz < REVIVE_RANGE * REVIVE_RANGE) { helper = true; break; }
+          }
+          R.reviveP = helper ? (R.reviveP || 0) + dt : Math.max(0, (R.reviveP || 0) - dt * 0.5);
+          if (R.reviveP >= REVIVE_TIME) {
+            standUp(run, 0.5);
+            run.vfx.ring(p.pos.x, p.pos.y, p.pos.z, 3, 5963658, 0.6);
+            if (run.ui) run.ui.toast('Back on your feet!', null);
+          }
+        } else if (!p.dead) R.reviveP = 0;
+        if (!coop.isHost) return;
+        let allDown = p.dead;
+        if (allDown) for (const m of coop.mates.values()) if (m.connected && m.pl && !m.pl.dead) { allDown = false; break; }
+        R.allDownT = allDown ? (R.allDownT || 0) + dt : 0;
+        if (R.allDownT > 1.6) {
+          R.allDownT = 0;
+          run.endHow = 'lose';
+          try { run.finish(false); } catch (e) { console.warn('[coop] all down', e); }
+        }
+      }
+
+      const dirToFace = d => { const a = ((d / 8) * Math.PI * 2) - Math.PI; return { x: Math.sin(a), z: Math.cos(a) }; };
+
+      function gameAdapter() {
+        const runOf = () => R.run;
+        return {
+          // host: team stats for the k:'f' frame
+          team() {
+            const r = runOf(), p = r && r.player;
+            return {
+              time: r ? r.time : 0, level: p ? p.level : 1, xp: p ? p.xp : 0,
+              xpNext: p ? (p.xpNext || 1) : 1, kills: r ? r.stats.kills : 0,
+              bosses: r ? r.stats.bosses : 0, coins: r ? r.gold : 0,
+              stage: r ? r.stage : 1, stageTime: r ? r.stageTime : 0,
+              migrations: r ? r.migrations | 0 : 0, floor: r ? towerKey(r) : 0
+            };
+          },
+          // host: enemy wire rows near THAT guest (its puppet = its last frame)
+          enemyList(m) {
+            const r = runOf(); if (!r) return [];
+            const v = m && m.pl, n = v && v.net;
+            const x = v && v.pos ? v.pos.x : n ? n.x : r.player.pos.x;
+            const z = v && v.pos ? v.pos.z : n ? n.y : r.player.pos.z;
+            // Straight into wire rows (no intermediate objects: 300 enemies x 15 Hz
+            // x every guest was a lot of garbage).
+            const sd = r.enemies, out = [], r2n = NEAR_R * NEAR_R;
+            for (let i = 0; i < sd.n; i++) {
+              if (!sd.alive[i] || sd.dying[i] > 0) continue;
+              const dx = sd.x[i] - x, dz = sd.z[i] - z;
+              if (dx * dx + dz * dz > r2n) continue;
+              const fx = sd.fx[i], fz = sd.fz[i];
+              out.push([i, r2(sd.x[i]), r2(sd.z[i]), Math.ceil(sd.hp[i]),
+                sd.atkAnim[i] > 0 ? 1 : (sd.frozen[i] > 0 || sd.sleep[i] > 0) ? 2 : 0,
+                dirOfXZ(fx, fz),
+                (sd.burn[i] > 0 ? 1 : 0) | (sd.poison[i] > 0 ? 2 : 0) | (sd.shield[i] > 0 ? 4 : 0) | (sd.hazSlow[i] < 1 ? 8 : 0)]);
+            }
+            return out;
+          },
+          // host: every live enemy as 'ne', for a guest that has just come in
+          enemySnapshot() {
+            const r = runOf(); if (!r) return [];
+            const sd = r.enemies, out = [];
+            for (let i = 0; i < sd.n; i++) if (sd.alive[i] && !sd.remote[i] && sd.dying[i] <= 0) out.push(enemyEvent(sd, i));
+            return out;
+          },
+          // guest: remote enemy lifecycle ('ne' / 'ed' / 'eg' / 'f' rows).
+          // The host's slot index and the guest's local slot index are NOT the
+          // same: `sd.spawn()` pops from the guest's own free list. The wire
+          // protocol (and every 'h' hit the guest sends back) speaks HOST slot
+          // ids, so `hostSlot[localSlot]` is the mapping used on both sides.
+          addRemoteEnemy(ev) {
+            const r = runOf(); if (!r) return;
+            const sd = r.enemies;
+            const hostSlot = ev[1];
+            // Idempotent: the join snapshot can repeat an enemy we already have.
+            const known = localSlotOf(hostSlot);
+            if (known != null) {
+              if (sd.species[known] === ev[2]) return;
+              sd.kill(known);       // that host slot was reused by a new enemy
+            }
+            const slot = sd.spawn(ev[2], ev[3], ev[4], 1, 1, ev[9] || 0);
+            if (slot < 0) return;
+            sd.remote[slot] = 1;
+            (sd.hostSlot ||= new Int32Array(sd.remote.length))[slot] = hostSlot;
+            sd.maxHp[slot] = sd.hp[slot] = ev[7] || 1;
+            const b = slot * 4;
+            sd.net[b] = ev[3]; sd.net[b + 1] = ev[4]; sd.net[b + 2] = ev[7] || 1; sd.net[b + 3] = 0;
+            if (sd.netV) sd.netV[slot * 2] = sd.netV[slot * 2 + 1] = 0;
+          },
+          applyRemoteEnemy(a) {
+            const r = runOf(); if (!r) return;
+            const sd = r.enemies;
+            // a[0] is a HOST slot; translate to the guest's local row.
+            const local = r.coop ? r.coop.localSlotOf(a[0]) : a[0];
+            if (local == null || !sd.alive[local]) return;
+            const b = local * 4, now = performance.now();
+            const v = sd.netV || (sd.netV = new Float32Array(sd.remote.length * 2));
+            const dts = (now - sd.net[b + 3]) / 1000;
+            if (dts > 0.02 && dts < 1.5) {
+              v[local * 2] = Math.max(-15, Math.min(15, (a[1] - sd.net[b]) / dts));
+              v[local * 2 + 1] = Math.max(-15, Math.min(15, (a[2] - sd.net[b + 1]) / dts));
+            } else { v[local * 2] = v[local * 2 + 1] = 0; }
+            sd.net[b] = a[1]; sd.net[b + 1] = a[2]; sd.net[b + 2] = a[3]; sd.net[b + 3] = now;
+            const anim = a[4], dir = a[5];
+            sd.atkAnim[local] = anim === 1 ? 0.2 : 0;
+            sd.dying[local] = anim === 3 ? 0.1 : 0;
+            sd.frozen[local] = anim === 2 ? 1 : 0;
+            sd.sleep[local] = 0;
+            const f = dirToFace(dir || 0);
+            sd.fx[local] = f.x; sd.fz[local] = f.z;
+            if (a[6] & 1) sd.burn[local] = Math.max(sd.burn[local], 0.1);
+            if (a[6] & 2) sd.poison[local] = Math.max(sd.poison[local], 0.1);
+          },
+          removeRemoteEnemy(hostSlot) {
+            const r = runOf(); if (!r) return;
+            const local = r.coop ? r.coop.localSlotOf(hostSlot) : hostSlot;
+            if (local != null && r.enemies.remote[local]) r.enemies.kill(local);
+          },
+          // guest: damage-number popup on a remote enemy ('hn' event)
+          showRemoteHurt(hostSlot, dmg, color) {
+            const r = runOf(); if (!r) return;
+            const sd = r.enemies;
+            const slot = r.coop ? r.coop.localSlotOf(hostSlot) : hostSlot;
+            if (slot == null || !sd || !sd.alive || !sd.alive[slot]) return;
+            r.vfx.number(sd.x[slot], sd.y[slot] + sd.hgt[slot] + 0.3, sd.z[slot], dmg, color || 16777215);
+            sd.flash[slot] = 1;
+          },
+          // host: apply a guest's forwarded hit
+          getEnemy(slot) { const r = runOf(); return r && r.enemies.isAlive(slot) ? slot : null; },
+          // host: apply a guest's forwarded hit.
+          // `silent: true` is REQUIRED: without it the host runs the local
+          // damage-number/audio block, which needs a move definition for
+          // `n.slot` that a forwarded hit does not have, throws, and skips the
+          // `i.hp[e] <= 0 && this.killEnemy(e, n)` tail — damage lands but the
+          // enemy never dies (observed: host hp 30 -> 8.6, kills stayed 0).
+          // The guest already applied its stats/type chart (bundle patch A11), so
+          // `dmg` is final. The host draws the teammate's number itself (silent
+          // skips the bundle's own one, see above).
+          applyHit(slot, dmg, color, dx, dy, knock) {
+            const r = runOf(); if (!r) return;
+            const sd = r.enemies, x = sd.x[slot], y = sd.y[slot] + sd.hgt[slot] + 0.3, z = sd.z[slot];
+            const done = r.combat.hit(slot, num(dmg, 0, 0, 1e9), {
+              fixed: true, silent: true, dirX: num(dx, 0, -1, 1), dirZ: num(dy, 0, -1, 1), knock: num(knock, 1.5, 0, 10),
+            });
+            if (done > 0) r.vfx.number(x, y, z, done, color || 16777215);
+          },
+          applyStatus(slot, kind, val) { const r = runOf(); if (r && r.combat.applyStatus) r.combat.applyStatus(slot, kind, val); },
+          ghostCast() { /* TODO(no game API): no hook to render a teammate's ghost cast. */ },
+          // UI / flow
+          // guest: host frame drives the HUD team stats + clock (host runs the world).
+          syncTeam(s) {
+            const r = runOf(); if (!r || !r.player) return;
+            const p = r.player;
+            if (s.time != null) r.time = s.time;
+            if (s.level != null) p.level = s.level;
+            if (s.xp != null) p.xp = s.xp;
+            if (s.xpNext != null) p.xpNext = s.xpNext;
+            if (s.kills != null) r.stats.kills = s.kills;
+            if (s.bosses != null) r.stats.bosses = s.bosses;
+            // Team purse: the host's. What WE changed since the last frame (shop,
+            // slots, rocks...) goes to the host, which applies it to the purse;
+            // until its next frame shows it, we keep showing our change.
+            if (s.coins != null) {
+              if (R.goldSeen != null && r.coop && r.coop.active && !r.coop.isHost) {
+                const d = r2(r.gold - R.goldSeen);
+                if (d) r.coop.toHost(['gd', d]);
+                r.gold = s.coins + d;
+              } else r.gold = s.coins;
+              R.goldSeen = r.gold;
+            }
+            // The zone clock (HUD timer, final swarm) is the host's too.
+            if (s.stageTime != null && r.stage === s.stage) r.stageTime = s.stageTime;
+            // The host went through the portal: follow it into the same zone.
+            // Zones are built from seed + stage, and both runs share the seed.
+            // Same for endless migrations and tower floors. A downed guest is
+            // stood up first: the bundle refuses to travel with a dead player.
+            const follow = (fn) => {
+              if (r.state !== 'play') return;
+              if (r.player.dead) standUp(r, 0.3);
+              fn().catch(e => console.warn('[coop] follow host', e));
+            };
+            if (Number.isInteger(s.stage) && s.stage > r.stage && !r.endless && !r.tower) {
+              follow(() => { r.stage = s.stage - 1; return r.enterPortal(); });
+            } else if (r.endless && Number.isInteger(s.migrations) && s.migrations > (r.migrations | 0)) {
+              follow(() => { r.migrations = s.migrations - 1; return r.migrate(); });
+            } else if (r.tower && Number.isInteger(s.floor) && s.floor > towerKey(r)) {
+              follow(() => r.climb());
+            }
+          },
+          levelStart(lv) {
+            // Host: doLevelUp() already opens the card natively and the bundle
+            // hook broadcasts the 'lu' event.
+            //
+            // Guest: as in PokéSurvivor, everyone picks their OWN card on a team
+            // level-up. Queue it like a local level-up: DC.update opens it through
+            // the bundle's own doLevelUp() path on the next 'play' frame, and its
+            // close hook (bundle patch A6 -> __pbLevelPicked) sends 'lp'. (Calling
+            // ui.showLevelUp() directly from here is what used to blow up.)
+            const r = runOf();
+            if (!r || !r.coop || r.coop.isHost || r.state === 'over') return;
+            r.queueLevelUp();
+            // Held after our last card? The new card can only open in 'play'.
+            if (R.holding) release(r);
+          },
+          // 'lr' (guest) / everyone picked (host): let the run go on.
+          resume() {
+            const r = runOf();
+            if (!r || !R.holding) return;
+            release(r);
+          },
+          waiting(names) {
+            const r = runOf();
+            if (!r || !r.ui) return;
+            const others = (names || []).filter(n => n !== 'You' && n !== 'Tú' && n !== (r.player && r.player.uid));
+            R.waitNames = others;
+            if (R.holding) { showWaitPanel(r); return; }   // our card is done: the panel says it
+            const k = others.join(',');
+            if (k === (R._waitKey || null)) return;   // debounce sendWaiting() repeats
+            R._waitKey = k;
+            if (others.length) r.ui.toast(`Waiting for: ${others.join(', ')}`, null);
+          },
+          over(d) {
+            const r = runOf();
+            if (!r || r.state === 'over') return;
+            r.endHow = d && d.why ? d.why : 'lose';
+            try { r.finish((d && d.why) === 'win'); } catch (e) { console.warn('[coop] over', e); }
+          },
+          // The host owns the enemies and the clock: without it a guest's world
+          // is empty and frozen, so the run ends (PokéSurvivor does the same).
+          lost(msg) {
+            console.warn('[coop]', msg);
+            const r = runOf();
+            if (!r || r.state === 'over') return;
+            showDcBanner('Lost connection to the host — the run has ended');
+            if (r.ui) r.ui.toast('Lost connection to the host', null);
+            setTimeout(() => {
+              if (r.state === 'over') return;
+              r.endHow = 'lose';
+              try { r.finish(false); } catch (e) { console.warn('[coop] lost', e); }
+            }, 1500);
+          },
+          say(text, secs) { const r = runOf(); if (r && r.ui) r.ui.toast(text, null); },
+          shiny(dex) { const r = runOf(); if (r && r.ui) r.ui.toast('A shiny appeared!', 'shiny-stone'); },
+          away(name) { if (name) console.warn('[coop] host away/stalled:', name); },
+          mateLeft(m) {
+            const r = runOf();
+            if (m && m.name) showDcBanner(`${m.name} left the run`);
+            if (r && r.ui && m) r.ui.toast(`${m.name || 'A player'} left`, null);
+          },
+          item(id) { /* TODO(no game API): no hook to give a guest a pickup by id. */ },
+          pullAll() { const r = runOf(); if (r && r.pickups) r.pickups.magnetAll = 4; },
+          // guest: one of the host's enemies fired (bundle patch B3). A real
+          // hostile copy: on this screen it can only hurt us.
+          enemyShot(row, hostSlot) {
+            const r = runOf(); if (!r) return;
+            const e = projectileOf(row);
+            if (!e) return;
+            const local = localSlotOf(hostSlot);
+            e.from = local != null ? local : -1;
+            r.projectiles.fire(e);
+          },
+          // everyone: a teammate's own shot, drawn as a harmless ghost
+          ghostFire(pl, row) {
+            const r = runOf(); if (!r) return;
+            const e = projectileOf(row);
+            if (!e) return;
+            e.flags = (e.flags & ~(1 | 16 | 64)) | GHOST;
+            e.dmg = 0; e.slot = -1; e.target = -1;
+            r.projectiles.fire(e);
+          },
+          // guest: the host collected a berry / TM for us (bundle patch B4)
+          heal(frac) {
+            const r = runOf(); if (!r || !r.player || r.player.dead) return;
+            const p = r.player;
+            p.heal(p.maxHp * frac);
+            r.vfx.ring(p.pos.x, p.pos.y, p.pos.z, 3, 5963658, 0.5);
+          },
+          item(kind) {
+            // Through the bundle's own collect(): spawn it on us and take it.
+            const r = runOf(); if (!r || !r.player) return;
+            const p = r.player.pos, a = r.pickups.spawn(kind, p.x, p.y, p.z, 1);
+            if (a != null) r.pickups.collect(a);
+          },
+          // host: a guest changed the team purse
+          goldDelta(d) { const r = runOf(); if (r) r.gold = Math.max(0, r.gold + d); },
+          // host: pickups around that guest, as [slot, kind, x, z, value]
+          pickupList(m) {
+            const r = runOf(); if (!r) return [];
+            const pk = r.pickups, v = m && m.pl, n = v && v.net;
+            const x = v && v.pos ? v.pos.x : n ? n.x : 0, z = v && v.pos ? v.pos.z : n ? n.y : 0;
+            const out = [];
+            for (let i = 0; i < pk.n && out.length < 250; i++) {
+              if (!pk.alive[i]) continue;
+              const dx = pk.x[i] - x, dz = pk.z[i] - z;
+              if (dx * dx + dz * dz > PICKUP_NEAR * PICKUP_NEAR) continue;
+              out.push([i, pk.kind[i], r2(pk.x[i]), r2(pk.z[i]), r2(pk.value[i])]);
+            }
+            return out;
+          },
+          syncPickups(rows) { syncPickups(runOf(), rows); },
+          allyList(m) { const r = runOf(); return r ? allyList(r, m) : []; },
+          // host: the boss and mini-bosses whose HP bars the HUD shows
+          bossInfo() {
+            const r = runOf(); if (!r) return undefined;
+            const b = r.boss, sd = r.enemies, out = {};
+            if (b && b.alive) out.b = [b.bossIndex, String(b.name || '').slice(0, 40), String(b.moveName || '').slice(0, 40), r2(b.moveT || 0), b.immune ? 1 : 0];
+            const minis = ((r.minibosses && r.minibosses.list) || []).filter(a => a && sd.isAlive(a.i)).slice(0, 4);
+            if (minis.length) out.m = minis.map(a => [a.i, String(a.name || '').slice(0, 40), String(a.kind || ''), String(a.moveName || '').slice(0, 40), r2(a.moveT || 0), r2(a.life || 0), (a.minions || []).length]);
+            return out.b || out.m ? out : undefined;
+          },
+          syncBoss(bs) { syncBoss(runOf(), bs); },
+          syncAllies(list) { syncAllies(list); },
+          // host: everything else a guest sends
+          guestEvent(m, ev) {
+            const r = runOf(); if (!r) return;
+            switch (ev[0]) {
+              case 'vx':
+                vfxIn(r, ev[1], ev[2], 0);
+                if (Array.isArray(ev[2])) r.coop.emitNear(['vx', ev[1], ev[2]], ev[2][0], ev[2][2], m.uid, 60);
+                break;
+              case 'ia': {
+                const it = r.interactables && r.interactables.list.find(i => near(i, ev[1], ev[2], ev[3], 2));
+                if (it) r.interactables.interact(it);
+                break;
+              }
+              case 'bd': if (ev[1] && typeof ev[1] === 'object') m.build = ev[1]; break;
+            }
+          },
+          // guest: everything else the host sends
+          hostEvent(ev) {
+            const r = runOf(); if (!r) return;
+            switch (ev[0]) {
+              case 'vx': vfxIn(r, ev[1], ev[2], num(ev[3], 0, 0, 1e6)); break;
+              case 'iu': case 'i+': case 'i-': worldEvent(r, ev); break;
+              case 'rb': restoreBuild(r, ev[1]); break;
+              case 'ic': {
+                const it = r.interactables && r.interactables.list.find(i => near(i, 'altar', ev[1], ev[2]));
+                if (it && !it.used) it.charge = num(ev[3], 0, 0, 1);
+                break;
+              }
+              case 'bless':
+                if (r.state !== 'over' && typeof r.offerBlessing === 'function') {
+                  try { r.offerBlessing(String(ev[1] || ''), ev[2] | 0, ev[3] | 0, ev[4] | 0); } catch (e) { console.warn('[coop] blessing', e); }
+                }
+                break;
+            }
+          },
+          // host: a teammate that dropped is back in the run
+          mateBack(m) {
+            const r = runOf(); if (!r) return;
+            buildPuppets(r);
+            hideDcBanner();
+            if (m.build) r.coop.toMate(m.uid, ['rb', m.build]);
+            if (r.ui) r.ui.toast(`${m.name || 'A teammate'} is back`, null);
+          },
+          // `Coop.onHostFrame` closes the local card whenever a frame arrives with
+          // no `lu` field. On the guest that is EVERY frame (the card is opened by
+          // the 'lu' event, not by a frame field), so reporting `modal` here made
+          // the guest's card vanish one frame after it opened — unusable. The
+          // guest's card is closed by the host's explicit 'lr' (adapter.resume),
+          // so `inLevelUp()` must be false for guests.
+          inLevelUp() {
+            const r = runOf();
+            if (!r) return false;
+            if (r.coop && !r.coop.isHost) return false;   // guest: closed only by 'lr'
+            return r.state === 'modal';
+          },
+          choosing() { const r = runOf(); return r && r.state === 'modal' ? 1 : 0; },
+          watching() { return ''; },
+          startCoop(msg) {
+            const r = runOf();
+            if (!r || !msg || msg.seed == null) return;
+            // Only reseed when the host's seed actually differs: `start` is
+            // broadcast once, but it also reaches the net layer used by
+            // __pbStartCoop, so an unconditional rebuild would run twice and
+            // replace the player object after coop.local was already re-pointed.
+            if (r.seed === msg.seed) return;
+            r.seed = msg.seed;
+            try { r.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); }
+            buildPuppets(r);
+          }
+        };
+      }
+
+      /**
+       * Level-up card closed (bundle patch A6). Tells the session, then says
+       * whether the run must stay paused: with more cards queued we go on to the
+       * next one; otherwise we wait for the teammates still choosing (host: its
+       * `waiting` set; guest: the host's 'lr'). A guest never waits forever: if
+       * 'lr' got lost, it lets itself go after HOLD_MAX.
+       */
+      const HOLD_MAX = 45000;
+      function levelPicked(run) {
+        const coop = run.coop;
+        coop.localPicked();
+        if (run.pendingLevels > 0) return false;
+        const others = coop.isHost ? coop.waiting.size > 0 : true;
+        if (!others) return false;
+        R.holding = true;
+        // Paused behind a real window: DC.update drops a 'modal' state that has
+        // no modal open after 1.5 s ("modal state without a window").
+        run.state = 'modal';
+        showWaitPanel(run);
+        clearTimeout(R.holdTimer);
+        if (!coop.isHost) R.holdTimer = setTimeout(() => { if (R.holding && R.run === run) release(run); }, HOLD_MAX);
+        return true;
+      }
+      globalThis.__pbLevelPicked = levelPicked;
+
+      function release(run) {
+        R.holding = false;
+        R.waitEl = null;
+        clearTimeout(R.holdTimer);
+        if (run.state !== 'modal') return;
+        if (run.pendingLevels > 0) { run.ui.hideModal(); run.state = 'play'; }   // next card opens next frame
+        else run.resume();                                                         // also hides the panel
+      }
+
+      /** "Waiting for: …" window shown while teammates are still on their card. */
+      function showWaitPanel(run) {
+        const names = R.waitNames && R.waitNames.length ? R.waitNames.join(', ') : 'your teammates';
+        if (R.waitEl && R.waitEl.isConnected) { R.waitEl.querySelector('p').textContent = names; return; }
+        const el = document.createElement('div');
+        el.className = 'panel pb-wait-panel';
+        el.style.cssText = 'padding:18px 26px;text-align:center;max-width:420px';
+        const h = document.createElement('h2');
+        h.style.margin = '0 0 6px';
+        h.textContent = 'Waiting for teammates…';
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0';
+        p.textContent = names;
+        el.append(h, p);
+        R.waitEl = el;
+        run.ui.modal(el);
+      }
+
+      // Begin the co-op session against a live run. `cfg` is the room ticket from
+      // __pbStartCoop; the authoritative seed is the run's own seed (host) or the
+      // host's `start` message (guest, captured below in __pbStartCoop).
+      function beginCoop(cfg) {
+        const run = R.run;
+        if (!run || run.coop) return;         // no run yet, or already begun
+        R.pendingCoop = null;
+        const coop = R.coop;
+        run.coop = coop;
+        const members = R.members.length ? R.members : (cfg.members || []);
+        const isHost = cfg.uid === cfg.host;
+        const seed = isHost ? run.seed : (R.remoteSeed != null ? R.remoteSeed : cfg.seed);
+        // Refresh our own member entry with the species we actually play now that
+        // the run exists (the lobby entry is only what was selected back then).
+        // The trainer name stays: it is what the party HUD and name tags show.
+        // Teammates do not depend on this: every frame carries our species
+        // (P.DEX), and their puppet follows it.
+        if (run.startSpecies) {
+          const self = members.find(m => m.uid === cfg.uid);
+          if (self) { self.dex = run.startSpecies; self.shiny = !!run.shinySkin; }
+        }
+        R.members = members;
+        if (isHost && Net.isOpen()) Net.syncMembers(members.map(m => m.uid));
+        coop.begin({ seed, host: cfg.host, members }, run.player, R.game);
+        if (isHost) {
+          Net.broadcast({ k: 'start', seed, host: cfg.host, members, cfg: runCfgOf(run) });
+        } else if (R.remoteSeed != null && run.seed !== R.remoteSeed) {
+          // Only if the guest's run was NOT built from the host's config
+          // (__pbRunOverride): a late fallback, the terrain is rebuilt.
+          run.seed = R.remoteSeed;
+          try { run.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); }
+        }
+        // Teammate puppets. `Coop.begin()` only leaves placeholder stubs in
+        // `mates[*].pl` (no pos/render/net), so they must be replaced by real
+        // `Yg` puppets before the first frame. `__pbBuildPuppets` is also called
+        // from the patched `DC.buildStage`, so a reseed rebuilds them.
+        buildPuppets(run);
+        // Re-publish the refreshed member list to the room (fire-and-forget).
+        if (globalThis.__pbPublishMembers) globalThis.__pbPublishMembers(members);
+      }
+
+      /**
+       * Replace every connected mate's placeholder with a real `Yg` puppet and
+       * point `mate.pl` at it — that object is what `DC.renderCoopPlayers` draws
+       * and what `Coop` writes the wire state into (`pl.net`). Idempotent: an
+       * existing puppet for the same uid is reused, never duplicated.
+       *
+       * Also re-points `coop.local` at `run.player`: `DC.buildStage(true)` builds
+       * a brand-new `Yg` (the guest reseeds from the host's seed that way), so a
+       * `local` captured by `coop.begin()` would keep streaming the old object's
+       * frozen position — the teammate would sit at the spawn point forever.
+       */
+      function buildPuppets(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active || typeof globalThis.__pbMakePuppets !== 'function') return [];
+        if (run.player && coop.local !== run.player) coop.local = run.player;
+        const mates = coop.matesList || [];
+        const members = mates.map(m => ({ uid: m.uid, name: m.name, dex: mateDex(m), shiny: !!m.shiny, color: m.color }));
+        let made = [];
+        try {
+          made = globalThis.__pbMakePuppets(run, members, coop.me) || [];
+        } catch (e) {
+          // A bad species in one member must not cost everyone else a puppet.
+          console.warn('[coop] puppet factory', e);
+          for (const m of members) {
+            try {
+              const one = globalThis.__pbMakePuppets(run, [m], coop.me);
+              if (one && one[0]) made.push(one[0]);
+            } catch { /* that member stays a stub this run */ }
+          }
+        }
+        const byUid = new Map(made.map(p => [p.uid, p]));
+        for (const m of mates) {
+          if (!m.connected) continue;
+          const p = byUid.get(m.uid) || m.pl;
+          if (!p || typeof p.render !== 'function') continue;
+          adoptPuppet(m, p);
+        }
+        run.coopPuppets = [...coop.mates.values()].map(m => m.pl);
+        return run.coopPuppets;
+      }
+      globalThis.__pbBuildPuppets = buildPuppets;
+
+      /** The species a mate's puppet must show: its own last frame first. */
+      function mateDex(m) {
+        const n = m.pl && m.pl.net;
+        return (n && n.dex) || m.dex || 0;
+      }
+
+      /** Point `mate.pl` at puppet `p`, carrying over wire state and tag. */
+      function adoptPuppet(m, p) {
+        const old = m.pl;
+        if (old && old !== p) {
+          p.net ||= old.net;                          // keep the wire state
+          if (old._drawOff) p._drawOff = old._drawOff;
+          if (old._tagEl) { old._tagEl.remove(); old._tagEl = null; }
+        }
+        p.tag ||= m.name;
+        p.tagColor ||= m.color;
+        p.netShiny = !!(p.net && p.net.shiny != null ? p.net.shiny : m.shiny);
+        m.pl = p;
+      }
+
+      /**
+       * The teammate is now a different species than its puppet (the lobby had
+       * a stale/placeholder dex, or it evolved): build a puppet of the right one.
+       * A species that fails to build is not retried every frame.
+       */
+      function respecies(run, coop, m, dex) {
+        m.badDex ||= new Set();
+        if (m.badDex.has(dex)) return;
+        try {
+          const one = globalThis.__pbMakePuppets(run, [{ uid: m.uid, name: m.name, dex, color: m.color }], coop.me);
+          if (!one || !one[0] || typeof one[0].render !== 'function') throw new Error('no puppet');
+          m.dex = dex;
+          adoptPuppet(m, one[0]);
+          run.coopPuppets = [...coop.mates.values()].map(x => x.pl);
+        } catch (e) {
+          m.badDex.add(dex);
+          console.warn('[coop] puppet species', dex, e);
+        }
+      }
+
+      let partyPanelEl = null;
+      let dcBannerEl = null;
+      const partyRows = new Map();
+
+      function showDcBanner(text) {
+        const run = R.run;
+        if (!run || !run.coop) return;   // also after the session ended (host lost)
+        if (!dcBannerEl || !dcBannerEl.isConnected) {
+          dcBannerEl = document.createElement('div');
+          dcBannerEl.id = 'pb-dc-banner';
+          const text = document.createElement('span');
+          text.className = 'pb-dc-text';
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'pb-dc-close';
+          closeBtn.textContent = '✕';
+          closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            hideDcBanner();
+          };
+          dcBannerEl.append(text, closeBtn);
+          const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
+          parent.append(dcBannerEl);
+        }
+        // Nothing reconnects a teammate mid-run (a lost mate stays gone), so do not promise it.
+        dcBannerEl.querySelector('.pb-dc-text').textContent = text || 'A teammate left the run';
+        dcBannerEl.style.display = '';
+      }
+      globalThis.__pbShowDcBanner = showDcBanner;
+
+      function hideDcBanner() {
+        if (dcBannerEl) dcBannerEl.style.display = 'none';
+      }
+      globalThis.__pbHideDcBanner = hideDcBanner;
+
+      function updatePartyHud(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) {
+          if (partyPanelEl) partyPanelEl.style.display = 'none';
+          hideDcBanner();
+          return;
+        }
+        if (!partyPanelEl || !partyPanelEl.isConnected) {
+          // A new run builds a new HUD: the old panel (and its rows) went with
+          // the old one. The cached rows pointed at it, so the new panel stayed
+          // empty — the teammates' health bars were "sometimes" missing.
+          for (const r of partyRows.values()) r.el.remove();
+          partyRows.clear();
+          partyPanelEl = document.getElementById('pb-party-panel');
+          if (partyPanelEl && !partyPanelEl.isConnected) partyPanelEl = null;
+          if (!partyPanelEl) {
+            partyPanelEl = document.createElement('div');
+            partyPanelEl.id = 'pb-party-panel';
+            const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
+            parent.append(partyPanelEl);
+          }
+        }
+        partyPanelEl.style.display = '';
+
+        const activeUids = new Set();
+        const netMod = globalThis.__pbNet;
+
+        // 1. Local player row (real player object)
+        const meUid = coop.me;
+        activeUids.add(meUid);
+        const p = run.player;
+        const meMember = coop.members && coop.members.find(m => m.uid === meUid);
+        const meName = (meMember && meMember.name) || (p && p.data && p.data.name) || (p && p.name) || 'You';
+        const meColor = (meMember && meMember.color) || (p && p.tagColor) || '#ffcb3d';
+        const meHp = p ? Math.max(0, p.hp) : 0;
+        const meMaxHp = p ? Math.max(1, p.maxHp) : 1;
+        const meLvl = p ? (p.level || 1) : 1;
+        const meDead = !!(p && (p.dead || p.hp <= 0));
+        updatePartyRow(meUid, meName, meColor, meHp, meMaxHp, meLvl, meDead, 0, 'direct');
+
+        // 2. Connected teammates rows (wire state from pl.net)
+        let hasConnectedMate = false;
+        for (const m of coop.mates.values()) {
+          if (!m.connected) {
+            if (m.pl && m.pl._tagEl) m.pl._tagEl.style.display = 'none';
+            continue;
+          }
+          hasConnectedMate = true;
+          activeUids.add(m.uid);
+          const pl = m.pl;
+          const net = (pl && pl.net) || m.state || {};
+          const name = m.name || (pl && (pl.tag || pl.name)) || 'Teammate';
+          const color = m.color || (pl && pl.tagColor) || '#5fc8ff';
+          const hp = net.hp != null ? Math.max(0, net.hp) : (pl ? Math.max(0, pl.hp) : 0);
+          const maxHp = net.maxHp != null ? Math.max(1, net.maxHp) : (pl ? Math.max(1, pl.maxHp) : 1);
+          const lvl = net.level != null ? net.level : (pl ? (pl.level || 1) : 1);
+          const dead = !!(net.dead || (pl && pl.dead) || hp <= 0);
+          const reviveT = Number(net.reviveT != null ? net.reviveT : (pl ? pl.reviveT : 0) || 0);
+          const connMode = netMod && typeof netMod.mode === 'function' ? netMod.mode(m.uid) : 'direct';
+          updatePartyRow(m.uid, name, color, hp, maxHp, lvl, dead, reviveT, connMode);
+        }
+
+        // Only dismiss if the mate's connection is direct or relay
+        if (hasConnectedMate && dcBannerEl && dcBannerEl.style.display !== 'none') {
+          const anyLost = Array.from(coop.mates.values()).some(m => !m.connected || (netMod && ['failed', 'closed'].includes(netMod.mode(m.uid))));
+          if (!anyLost) hideDcBanner();
+        }
+        // Collapse panel to a single slim line if party has only 1 active member
+        const isSingleMember = activeUids.size <= 1;
+        partyPanelEl.classList.toggle('pb-collapsed', isSingleMember);
+
+        // 3. Remove departed rows
+        for (const [uid, r] of partyRows.entries()) {
+          if (!activeUids.has(uid)) {
+            r.el.remove();
+            partyRows.delete(uid);
+          }
+        }
+      }
+
+      function updatePartyRow(uid, name, color, hp, maxHp, lvl, dead, reviveT, connMode) {
+        let r = partyRows.get(uid);
+        if (!r) {
+          const el = document.createElement('div');
+          el.className = 'pb-party-row';
+
+          const head = document.createElement('div');
+          head.className = 'pb-party-row-head';
+
+          const dot = document.createElement('span');
+          dot.className = 'pb-party-dot';
+
+          const connDot = document.createElement('span');
+          connDot.className = 'pb-conn-dot';
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'pb-party-name';
+
+          const lvlEl = document.createElement('span');
+          lvlEl.className = 'pb-party-lvl';
+
+          const statusEl = document.createElement('span');
+          statusEl.className = 'pb-party-status';
+
+          head.append(dot, connDot, nameEl, lvlEl, statusEl);
+
+          const bar = document.createElement('div');
+          bar.className = 'pb-party-hpbar bar hpbar';
+
+          const fill = document.createElement('i');
+          fill.className = 'pb-party-hp-fill';
+
+          const text = document.createElement('b');
+          text.className = 'pb-party-hp-text';
+
+          bar.append(fill, text);
+          el.append(head, bar);
+          partyPanelEl.append(el);
+
+          r = {
+            el, dot, connDot, name: nameEl, lvl: lvlEl, status: statusEl, bar, fill, text,
+            lastPct: -1, lastHpStr: '', lastLvl: '', lastStatus: null, lastColorClass: '', lastMode: ''
+          };
+          partyRows.set(uid, r);
+        }
+
+        if (r.name.textContent !== name) r.name.textContent = name;
+        if (r.dot.style.color !== color) {
+          r.dot.style.color = color;
+          r.dot.style.backgroundColor = color;
+        }
+
+        const mode = connMode || 'direct';
+        if (r.lastMode !== mode) {
+          r.connDot.className = `pb-conn-dot pb-conn-${mode}`;
+          r.connDot.title = `Connection: ${mode}`;
+          r.lastMode = mode;
+        }
+
+        const lvlStr = `Lv.${lvl}`;
+        if (r.lastLvl !== lvlStr) {
+          r.lvl.textContent = lvlStr;
+          r.lastLvl = lvlStr;
+        }
+
+        const pct = Math.max(0, Math.min(1, hp / maxHp));
+        if (r.lastPct !== pct) {
+          r.fill.style.transform = `scaleX(${pct})`;
+          r.lastPct = pct;
+        }
+
+        const hpStr = dead ? (reviveT > 0 ? `REVIVE IN ${Math.ceil(reviveT)}s` : 'DEAD') : `${Math.ceil(hp)} / ${Math.ceil(maxHp)}`;
+        if (r.lastHpStr !== hpStr) {
+          r.text.textContent = hpStr;
+          r.lastHpStr = hpStr;
+        }
+
+        const colorClass = dead ? 'dead' : pct < 0.25 ? 'low' : pct < 0.5 ? 'mid' : 'good';
+        if (r.lastColorClass !== colorClass) {
+          r.bar.className = `pb-party-hpbar bar hpbar ${colorClass}`;
+          r.el.classList.toggle('dead', dead);
+          r.lastColorClass = colorClass;
+        }
+
+        let status = '';
+        let isReviving = false;
+        if (dead) {
+          if (reviveT > 0) {
+            status = `DEAD · ${Math.ceil(reviveT)}s`;
+            isReviving = true;
+          } else {
+            status = 'DEAD';
+          }
+        }
+        if (r.lastStatus !== status) {
+          r.status.textContent = status;
+          r.status.style.display = status ? '' : 'none';
+          r.status.className = `pb-party-status${isReviving ? ' reviving' : ''}`;
+          r.lastStatus = status;
+        }
+      }
+
+      /**
+       * Per-frame puppet sync, called from the patched `DC.update` before
+       * `renderWorld`. Copies the latest wire state onto the puppet object so its
+       * world position is a pure function of the most recent host/guest frame —
+       * no interpolation clock, no dependence on how often the render pass runs.
+       * Cheap: one mate per teammate, a handful of scalar writes.
+       */
+      function syncPuppets(run) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) {
+          if (partyPanelEl) partyPanelEl.style.display = 'none';
+          return;
+        }
+        for (const m of coop.mates.values()) {
+          if (m.connected && m.pl && m.pl.net && m.pl.net.dex > 0 && m.pl.speciesId !== m.pl.net.dex) {
+            respecies(run, coop, m, m.pl.net.dex);
+          }
+          const pl = m.pl, net = pl && pl.net;
+          if (!net || !pl.pos || !pl.facing) continue;
+          pl.netShiny = !!net.shiny;
+          // `pos` is the TRUE wire position. Any visual separation is applied
+          // at draw time by __pbDrawOffset (see server.mjs patch A8), never here:
+          // mutating pos would corrupt interpolation and the net round-trip.
+          // Smooth: follow the latest frame, extrapolated along the teammate's
+          // velocity for a moment (3-15 frames/s would otherwise make it hop).
+          const now = performance.now(), dt = Math.min(0.1, run.realDt || 0.016);
+          if (pl._nx !== net.x || pl._nz !== net.y) {
+            const dts = (now - (pl._nAt || now)) / 1000;
+            pl._vx = dts > 0.02 && dts < 1.5 ? Math.max(-20, Math.min(20, (net.x - pl._nx) / dts)) : 0;
+            pl._vz = dts > 0.02 && dts < 1.5 ? Math.max(-20, Math.min(20, (net.y - pl._nz) / dts)) : 0;
+            pl._nx = net.x; pl._nz = net.y; pl._nAt = now;
+          }
+          const ahead = Math.min(0.3, (now - (pl._nAt || now)) / 1000);
+          const tx = net.x + (pl._vx || 0) * ahead, tz = net.y + (pl._vz || 0) * ahead;
+          const far = Math.abs(tx - pl.pos.x) + Math.abs(tz - pl.pos.z) > 8;    // teleport/respawn: snap
+          const k = far ? 1 : Math.min(1, dt * 15);
+          pl.pos.x += (tx - pl.pos.x) * k;
+          pl.pos.z += (tz - pl.pos.z) * k;
+          pl.pos.y = run.terrain ? run.terrain.height(net.x, net.y) : pl.pos.y;
+          pl.facing.x = Math.sin(net.angle);
+          pl.facing.y = Math.cos(net.angle);
+          pl.speedNow = net.walking ? 3 : 0;
+          if (net.maxHp != null) pl.maxHp = net.maxHp;
+          if (net.hp != null) pl.hp = net.hp;
+          pl.dead = !!net.dead;
+          if (net.level != null) pl.level = net.level;
+          if (net.reviveT != null) pl.reviveT = net.reviveT;
+        }
+        tickDowned(run);
+        if (!coop.isHost) sendBuild(run);
+        // Host: (re)open a peer for every member, so a teammate that dropped
+        // and came back is reachable again (net.mjs only connects missing ones).
+        if (coop.isHost && Net.isOpen() && performance.now() - (R.peerSyncAt || 0) > 3000) {
+          R.peerSyncAt = performance.now();
+          Net.syncMembers(R.members.map(m => m.uid));
+        }
+        updatePartyHud(run);
+      }
+      globalThis.__pbSyncPuppets = syncPuppets;
+
+      /**
+       * Floating name tag for remote puppets, positioned at draw time.
+       */
+      function updateFloatingTag(pl, dx, dz) {
+        const run = pl && pl.run;
+        if (!run || !run.coop || !run.coop.active || !pl.remote) {
+          if (pl && pl._tagEl) pl._tagEl.style.display = 'none';
+          return;
+        }
+        let tag = pl._tagEl;
+        if (!tag) {
+          // Name + a small HP bar over the teammate's head.
+          tag = document.createElement('div');
+          tag.className = 'pb-name-tag';
+          tag.innerHTML = '<span class="n"></span><i class="hp"><b></b></i>';
+          pl._tagEl = tag;
+        }
+        // The HUD is rebuilt for every run: an orphaned tag was never seen again.
+        if (!tag.isConnected) ((run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body).append(tag);
+        const wx = pl.pos.x + dx;
+        const wy = (pl.pos.y || 0) + 1.8;
+        const wz = pl.pos.z + dz;
+        const proj = run.ui && typeof run.ui.project === 'function' ? run.ui.project(run, wx, wy, wz) : null;
+        if (!proj || !proj.vis) {
+          tag.style.display = 'none';
+          return;
+        }
+        tag.style.left = `${proj.x}px`;
+        tag.style.top = `${proj.y}px`;
+        tag.style.display = '';
+        const color = pl.tagColor || '#5fc8ff';
+        tag.style.border = `1.5px solid ${color}`;
+        const isDead = !!(pl.dead || (pl.net && pl.net.dead) || (pl.hp != null && pl.hp <= 0));
+        const name = pl.tag || pl.name || 'Teammate';
+        const text = isDead ? `💀 ${name}` : name;
+        if (tag._text !== text) {
+          tag.firstChild.textContent = text;
+          tag._text = text;
+        }
+        const pct = isDead ? 0 : Math.max(0, Math.min(1, (pl.hp || 0) / Math.max(1, pl.maxHp || 1)));
+        const w = Math.round(pct * 100);
+        if (tag._w !== w) {
+          const bar = tag.lastChild.firstChild;
+          bar.style.width = `${w}%`;
+          bar.style.background = pct < 0.25 ? '#ff4a5a' : pct < 0.5 ? '#ffcb3d' : '#5fe08a';
+          tag._w = w;
+        }
+      }
+
+      /**
+       * Draw-time-only sprite offset for a remote puppet, so two players who
+       * stand on the same spot do not render as one Pokémon. Stable per uid
+       * (same direction and radius for the whole session), and strictly a
+       * rendering concern: `pl.pos` keeps the true wire position.
+       * Returns [dx, dz] or null for the local player.
+       */
+      function drawOffset(pl) {
+        if (!pl || !pl.remote) return null;
+        if (!pl._drawOff) {
+          let h = 0;
+          const key = String(pl.uid || pl.tag || 'mate');
+          for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+          // Spread teammates on a ring: deterministic angle + radius per uid.
+          const ang = (Math.abs(h) % 360) * Math.PI / 180;
+          const r = 1.6 + (Math.abs(h >> 8) % 3) * 0.3;   // 1.6 .. 2.2 world units
+          pl._drawOff = [Math.cos(ang) * r, Math.sin(ang) * r];
+        }
+        updateFloatingTag(pl, pl._drawOff[0], pl._drawOff[1]);
+        return pl._drawOff;
+      }
+      globalThis.__pbDrawOffset = drawOffset;
+
+      /**
+       * Minimap party indicators (Task 1).
+       * Called from the patched `drawMinimap(e)` right before canvas restore.
+       * Reuses the minimap's world-to-canvas projection `proj(x, z)` and
+       * circle rim clamping `clamp(x, y, true)`.
+       */
+      function drawMinimap(run, ctx, proj, clamp, scale) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active || !coop.mates) return;
+        for (const m of coop.mates.values()) {
+          if (!m.connected || !m.pl || m.uid === coop.me) continue;
+          const pl = m.pl;
+          const wx = pl.pos ? pl.pos.x : (pl.net ? pl.net.x : 0);
+          const wz = pl.pos ? pl.pos.z : (pl.net ? pl.net.y : 0);
+          const pt = proj(wx, wz);
+          const c = clamp(pt[0], pt[1], true);
+          if (!c) continue;
+          const [x, y] = c;
+          const color = m.color || '#ffcb3d';
+          const isDead = !!(pl.dead || (pl.net && pl.net.dead) || (pl.hp != null && pl.hp <= 0));
+          if (isDead) {
+            // Downed / dead teammate: hollow, pulsing ring with an X mark
+            const pulse = (6 + 2.5 * Math.sin(performance.now() * 0.008)) * scale;
+            ctx.save();
+            ctx.strokeStyle = '#1d1236';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(x, y, pulse, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, pulse, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const s = 3.5 * scale;
+            ctx.strokeStyle = '#ff4a5a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s);
+            ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s);
+            ctx.stroke();
+            ctx.restore();
+          } else {
+            // Alive teammate: solid dot with contrasting outline and center highlight
+            const r = 6.5 * scale;
+            ctx.save();
+            ctx.fillStyle = color;
+            ctx.strokeStyle = '#1d1236';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x, y, 2 * scale, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      }
+      globalThis.__pbDrawMinimap = drawMinimap;
+
+      /**
+       * Teammates on the big map (bundle patch C5): a disc in their colour with
+       * their Pokémon's icon and their name; a downed teammate is greyed and
+       * crossed. `proj(x, z)` is the map's own world->canvas projection and
+       * `size` its marker size.
+       */
+      const ICONS = new Map();
+      function iconOf(dex) {
+        let img = ICONS.get(dex);
+        if (!img) { img = new Image(); img.src = `/assets/icons/${dex}.png`; ICONS.set(dex, img); }
+        return img.complete && img.naturalWidth ? img : null;
+      }
+      function drawBigMap(run, ctx, proj, size) {
+        const coop = run && run.coop;
+        if (!coop || !coop.active) return;
+        const rad = Math.max(10, size * 0.95);
+        for (const m of coop.mates.values()) {
+          const pl = m.pl;
+          if (!m.connected || !pl || !pl.pos) continue;
+          const [x, y] = proj(pl.pos.x, pl.pos.z);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          const dead = !!(pl.dead || (pl.net && pl.net.dead));
+          const color = m.color || '#5fc8ff';
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.globalAlpha = dead ? 0.55 : 1;
+          ctx.fillStyle = '#1d1236';
+          ctx.beginPath(); ctx.arc(0, 0, rad + 3, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = dead ? '#6b6680' : color;
+          ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.fill();
+          const img = iconOf(pl.speciesId || m.dex || 1);
+          if (img) {
+            const s = rad * 1.7;
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, -s / 2, -s / 2, s * (img.naturalWidth / img.naturalHeight), s);
+          }
+          if (dead) {
+            ctx.strokeStyle = '#ff4a5a'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(-rad * .6, -rad * .6); ctx.lineTo(rad * .6, rad * .6);
+            ctx.moveTo(rad * .6, -rad * .6); ctx.lineTo(-rad * .6, rad * .6); ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          const name = m.name || 'Teammate';
+          ctx.font = `800 ${Math.max(11, Math.round(rad * 0.75))}px system-ui, sans-serif`;
+          const w = ctx.measureText(name).width + 12, hgt = Math.max(16, rad * 1.05);
+          ctx.fillStyle = '#1d1236';
+          ctx.beginPath(); ctx.roundRect(-w / 2, -rad - hgt - 4, w, hgt, hgt / 2); ctx.fill();
+          ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(name, 0, -rad - hgt / 2 - 4);
+          ctx.restore();
+        }
+      }
+      globalThis.__pbDrawBigMap = drawBigMap;
+
+      /**
+       * Guest slot mapping. The guest's `Sd` allocates its own local slots for
+       * the host's enemies, while the wire (and the 'h' hits the guest sends
+       * back) speaks HOST slot ids. `sd.hostSlot[local] = host` is written when
+       * the row is created; this is the inverse lookup, memoised per run.
+       */
+      function localSlotOf(hostSlot) {
+        const run = R.run;
+        const sd = run && run.enemies;
+        if (!sd || !sd.hostSlot) return null;
+        const memo = sd.__hostToLocal || (sd.__hostToLocal = new Map());
+        const cached = memo.get(hostSlot);
+        if (cached != null && sd.alive[cached] && sd.remote[cached]) return cached;
+        for (let i = 0; i < sd.n; i++) {
+          if (sd.alive[i] && sd.remote[i] && sd.hostSlot[i] === hostSlot) {
+            memo.set(hostSlot, i);
+            return i;
+          }
+        }
+        memo.delete(hostSlot);
+        return null;
+      }
+      globalThis.__pbLocalSlotOf = localSlotOf;
+
+      /** Host slot id for a local row (identity on the host). */
+      function hostSlotOf(localSlot) {
+        const run = R.run;
+        const sd = run && run.enemies;
+        if (!sd || !sd.remote || !sd.remote[localSlot]) return localSlot;
+        return sd.hostSlot ? sd.hostSlot[localSlot] : localSlot;
+      }
+
+      /** What a guest needs to build the very same world: { seed, biome, tier, mode }. */
+      function runCfgOf(run) {
+        return { seed: run.seed, biome: run.biome && run.biome.id, tier: run.tier | 0, mode: run.mode };
+      }
+
+      /** Validated run config from the host (room poll or `start` message). */
+      function cleanRunCfg(c) {
+        if (!c || !Number.isFinite(c.seed)) return null;
+        const out = { seed: c.seed };
+        if (typeof c.biome === 'string' && /^[a-z0-9-]{1,32}$/.test(c.biome)) out.biome = c.biome;
+        if (Number.isInteger(c.tier) && c.tier >= 0 && c.tier <= 20) out.tier = c.tier;
+        if (c.mode === 'standard' || c.mode === 'endless' || c.mode === 'tower') out.mode = c.mode;
+        return out;
+      }
+
+      // coop-ui hands the room's config over right before it starts our run
+      // (host and guests alike); bundle patch A17 merges it into the run.
+      globalThis.__pbSetRunCfg = c => { R.runCfg = cleanRunCfg(c); };
+      globalThis.__pbRunOverride = () => {
+        const c = R.runCfg;
+        if (!c || !R.room) return null;      // host and guests alike: one shared world
+        R.runCfg = null;                       // one run only
+        R.remoteSeed = c.seed;
+        return c;
+      };
+
+      globalThis.__pbStartCoop = async function (cfg) {
+        // cfg: { room, host, uid, members: [{uid,name,dex,shiny}], seed, db? }
+        const db = cfg.db || await ensureDb();
+        const uid = cfg.uid || db.uid;
+        R.db = db;
+        Net.init(db, uid);
+        Net.open(cfg.room, uid === cfg.host, cfg.host);
+        // Capture the host's `start` at the net layer so a guest that begins late
+        // (after the host already broadcast) still knows the host's run. Bound
+        // once: this function runs on create, join, start and every follow.
+        if (!R.startTap) {
+          R.startTap = (from, msg) => {
+            // 'go': the host pressed Start (everyone starts now).
+            if (msg && msg.k === 'go' && msg.seed != null && msg.cfg) {
+              if (globalThis.__pbCoopUI && globalThis.__pbCoopUI.hostStarted) globalThis.__pbCoopUI.hostStarted({ ...msg.cfg, seed: msg.seed });
+              return;
+            }
+            if (msg && msg.k === 'start' && msg.seed != null) {
+              R.remoteSeed = msg.seed;
+              R.remoteHost = msg.host;
+              if (msg.members) R.remoteMembers = msg.members;
+              if (msg.cfg && globalThis.__pbCoopUI && globalThis.__pbCoopUI.hostStarted) {
+                globalThis.__pbCoopUI.hostStarted(msg.cfg);
+              }
+            }
+          };
+          Net.on(R.startTap);
+        }
+        const game = gameAdapter();
+        R.game = game;
+        const coop = new Coop(Net, game);
+        coop._stateOf = stateOfPlayer;
+        // Guest-side slot translation: the protocol speaks host slot ids, the
+        // guest's Sd rows are local. Both the adapter and the hit path use this.
+        coop.localSlotOf = localSlotOf;
+        coop.hostSlotOf = hostSlotOf;
+        // `kh.strike` calls `coop.hit(localSlot, …)` on the guest, but the host
+        // must receive its OWN slot id. Wrap rather than change coop.mjs.
+        const rawHit = coop.hit.bind(coop);
+        coop.hit = (slot, dmg, color, dx, dy, knock) =>
+          rawHit(hostSlotOf(slot), dmg, color, dx, dy, knock);
+        const rawStatus = coop.status.bind(coop);
+        coop.status = (slot, kind, val) => rawStatus(hostSlotOf(slot), kind, val);
+        R.coop = coop;
+        R.room = { code: cfg.room, host: cfg.host, uid, isHost: uid === cfg.host, db };
+        R.members = Array.isArray(cfg.members) ? cfg.members.slice() : [];
+        R.pendingCoop = cfg;
+        // If a run already exists (room joined after starting), begin right away;
+        // otherwise the `run` accessor above fires beginCoop when the run appears.
+        if (R.run) beginCoop(cfg);
+        return coop;
+      };
+
+      // Co-op room panel (create/join UI). Loaded after the bridge so its globals
+      // are in place; it is inert in single-player until the user opens it.
+      import('./net/coop-ui.mjs').catch(e => console.warn('[coop] UI load failed:', e));
+    </script>
+    <script type="module" crossorigin src="./assets/main-BcyzVqXo-mvilprw2.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-P2Xu9kJm-mvilprw2.js">
+    <link rel="modulepreload" crossorigin href="./assets/i18n-Bjw6RPm7-mvilprw2.js">
+  </head>
+  <body>
+    <noscript><main style="max-width:640px;margin:40px auto;padding:0 16px;color:#fff;font:16px/1.5 system-ui,sans-serif"><h1>PokéBonk</h1><p>Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.</p><p>PokéBonk necesita JavaScript y WebGL para funcionar. Actívalos y recarga la página.</p><p><a href="/?lang=es" hreflang="es">ES</a> · <a href="/?lang=en" hreflang="en">EN</a> · <a href="/?lang=pt" hreflang="pt">PT</a> · <a href="/?lang=fr" hreflang="fr">FR</a> · <a href="/?lang=ja" hreflang="ja">JA</a> · <a href="/?lang=zh" hreflang="zh-CN">ZH</a> · <a href="/?lang=zht" hreflang="zh-TW">ZHT</a> · <a href="/?lang=ko" hreflang="ko">KO</a> · <a href="/?lang=ru" hreflang="ru">RU</a></p><p><a href="https://discord.gg/X7KusQqx8X">Discord</a> · <a href="/legal">Legal</a></p></main></noscript>
+    <canvas id="game"></canvas>
+    <div id="ui"></div>
+  </body>
+</html>

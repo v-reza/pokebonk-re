@@ -6,7 +6,12 @@
   "description": "Offline reconstruction of the PokéBonk web client with a local API backend",
   "scripts": {
     "start": "node server.mjs",
-    "mirror": "node tools/pull.mjs && node tools/probe.mjs"
+    "mirror": "node tools/pull.mjs && node tools/probe.mjs",
+    "patch:0.8.29": "node tools/apply-bundle-patches.mjs",
+    "verify": "node tools/verify-all.mjs",
+    "test:api": "node tools/test-coop-0.8.29.mjs",
+    "test:e2e": "node tools/test-coop-e2e-0.8.29.mjs",
+    "test:e2e:legacy": "node tools/test-coop-e2e.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.1.0"
