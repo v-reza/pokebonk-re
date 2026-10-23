@@ -338,12 +338,15 @@
       // Co-op bridge. Inert in single-player: nothing here runs until the game
       // calls globalThis.__pbStartCoop(cfg) (or until __pb.run is set by the bundle).
       import * as Net from 'net';
-      import { Coop, collectEnemySlots, serializeEnemyFrame, serializePlayerState, readEnemyFrame } from 'coop';
+      import { Coop, collectEnemySlots, serializeEnemyFrame, serializePlayerState, readEnemyFrame, num } from 'coop';
       import { localDb } from 'signaling';
       import { initAnonymous } from 'signaling-fb';
       import { firebaseConfig } from 'fbcfg';
 
-      const R = { _run: null, coop: null, game: null, db: null, room: null, members: [], pendingCoop: null };
+      const R = {
+        _run: null, coop: null, game: null, db: null, room: null, members: [], pendingCoop: null,
+        runCfg: null, holding: false, holdTimer: 0, startTap: null
+      };
 
       // The bundle sets `globalThis.__pb.run = this.run` when a run starts (and
       // `= null` when it finishes). React to a run appearing so a room that was
@@ -352,8 +355,12 @@
         get() { return this._run; },
         set(v) {
           this._run = v;
+          this.holding = false;
+          clearTimeout(this.holdTimer);
           if (v && this.pendingCoop) beginCoop(this.pendingCoop);
           if (!v) {
+            this.runCfg = null;
+            if (globalThis.__pbCoopUI && globalThis.__pbCoopUI.runEnded) globalThis.__pbCoopUI.runEnded();
             const p = document.getElementById('pb-party-panel');
             if (p) p.style.display = 'none';
           }
@@ -408,8 +415,19 @@
           walking: (pl.speedNow || 0) > 0.1 ? 1 : 0,
           hp: pl.hp, maxHp: pl.maxHp, dead: pl.dead ? 1 : 0, level: pl.level || 1,
           aim: a, xpMul: pl.bonusDamageMult ? pl.bonusDamageMult() : 1,
-          reviveT: pl.reviveT || 0, choosing: 0, doneSeq: 0, watching: ''
+          reviveT: pl.reviveT || 0, choosing: 0, doneSeq: 0, watching: '',
+          // What the others must draw for us: our CURRENT species (evolutions
+          // included) and skin. See coop.mjs P.DEX / P.SHINY.
+          dex: pl.speciesId | 0, shiny: pl.run && pl.run.shinySkin ? 1 : 0
         };
+      }
+
+      /** Wire row for one live host enemy, as the 'ne' event (see Coop.enemyAdded). */
+      const r2 = v => Math.round(v * 100) / 100;
+      function enemyEvent(sd, i) {
+        const f = sd.flags[i];
+        return ['ne', i, sd.species[i], r2(sd.x[i]), r2(sd.z[i]), f & 4 ? 1 : 0, f & 2048 ? 1 : 0,
+          Math.ceil(sd.maxHp[i]), r2(sd.dmg[i]), f];
       }
 
       const dirToFace = d => { const a = ((d / 8) * Math.PI * 2) - Math.PI; return { x: Math.sin(a), z: Math.cos(a) }; };
@@ -423,13 +441,24 @@
             return {
               time: r ? r.time : 0, level: p ? p.level : 1, xp: p ? p.xp : 0,
               xpNext: p ? (p.xpNext || 1) : 1, kills: r ? r.stats.kills : 0,
-              bosses: r ? r.stats.bosses : 0, coins: r ? r.gold : 0
+              bosses: r ? r.stats.bosses : 0, coins: r ? r.gold : 0,
+              stage: r ? r.stage : 1, stageTime: r ? r.stageTime : 0
             };
           },
-          // host: enemy wire rows near the host player
-          enemyList() {
+          // host: enemy wire rows near THAT guest (its puppet = its last frame)
+          enemyList(m) {
             const r = runOf(); if (!r) return [];
-            return serializeEnemyFrame(collectEnemySlots(r.enemies, r.player.pos.x, r.player.pos.z));
+            const v = m && m.pl, n = v && v.net;
+            const x = v && v.pos ? v.pos.x : n ? n.x : r.player.pos.x;
+            const z = v && v.pos ? v.pos.z : n ? n.y : r.player.pos.z;
+            return serializeEnemyFrame(collectEnemySlots(r.enemies, x, z));
+          },
+          // host: every live enemy as 'ne', for a guest that has just come in
+          enemySnapshot() {
+            const r = runOf(); if (!r) return [];
+            const sd = r.enemies, out = [];
+            for (let i = 0; i < sd.n; i++) if (sd.alive[i] && !sd.remote[i] && sd.dying[i] <= 0) out.push(enemyEvent(sd, i));
+            return out;
           },
           // guest: remote enemy lifecycle ('ne' / 'ed' / 'eg' / 'f' rows).
           // The host's slot index and the guest's local slot index are NOT the
@@ -440,6 +469,12 @@
             const r = runOf(); if (!r) return;
             const sd = r.enemies;
             const hostSlot = ev[1];
+            // Idempotent: the join snapshot can repeat an enemy we already have.
+            const known = localSlotOf(hostSlot);
+            if (known != null) {
+              if (sd.species[known] === ev[2]) return;
+              sd.kill(known);       // that host slot was reused by a new enemy
+            }
             const slot = sd.spawn(ev[2], ev[3], ev[4], 1, 1, ev[9] || 0);
             if (slot < 0) return;
             sd.remote[slot] = 1;
@@ -478,6 +513,7 @@
             const slot = r.coop ? r.coop.localSlotOf(hostSlot) : hostSlot;
             if (slot == null || !sd || !sd.alive || !sd.alive[slot]) return;
             r.vfx.number(sd.x[slot], sd.y[slot] + sd.hgt[slot] + 0.3, sd.z[slot], dmg, color || 16777215);
+            sd.flash[slot] = 1;
           },
           // host: apply a guest's forwarded hit
           getEnemy(slot) { const r = runOf(); return r && r.enemies.isAlive(slot) ? slot : null; },
@@ -487,11 +523,16 @@
           // `n.slot` that a forwarded hit does not have, throws, and skips the
           // `i.hp[e] <= 0 && this.killEnemy(e, n)` tail — damage lands but the
           // enemy never dies (observed: host hp 30 -> 8.6, kills stayed 0).
+          // The guest already applied its stats/type chart (bundle patch A11), so
+          // `dmg` is final. The host draws the teammate's number itself (silent
+          // skips the bundle's own one, see above).
           applyHit(slot, dmg, color, dx, dy, knock) {
             const r = runOf(); if (!r) return;
-            r.combat.hit(slot, dmg, {
-              fixed: true, silent: true, dirX: dx, dirZ: dy, knock: knock || 1.5,
+            const sd = r.enemies, x = sd.x[slot], y = sd.y[slot] + sd.hgt[slot] + 0.3, z = sd.z[slot];
+            const done = r.combat.hit(slot, num(dmg, 0, 0, 1e9), {
+              fixed: true, silent: true, dirX: num(dx, 0, -1, 1), dirZ: num(dy, 0, -1, 1), knock: num(knock, 1.5, 0, 10),
             });
+            if (done > 0) r.vfx.number(x, y, z, done, color || 16777215);
           },
           applyStatus(slot, kind, val) { const r = runOf(); if (r && r.combat.applyStatus) r.combat.applyStatus(slot, kind, val); },
           ghostCast() { /* TODO(no game API): no hook to render a teammate's ghost cast. */ },
@@ -507,32 +548,42 @@
             if (s.kills != null) r.stats.kills = s.kills;
             if (s.bosses != null) r.stats.bosses = s.bosses;
             if (s.coins != null) r.gold = s.coins;
+            // The zone clock (HUD timer, final swarm) is the host's too.
+            if (s.stageTime != null && r.stage === s.stage) r.stageTime = s.stageTime;
+            // The host went through the portal: follow it into the same zone.
+            // Zones are built from seed + stage, and both runs share the seed.
+            if (Number.isInteger(s.stage) && s.stage > r.stage && r.state === 'play' && !r.player.dead && !r.endless && !r.tower) {
+              r.stage = s.stage - 1;
+              r.enterPortal().catch(e => console.warn('[coop] follow portal', e));
+            }
           },
           levelStart(lv) {
             // Host: doLevelUp() already opens the card natively and the bundle
             // hook broadcasts the 'lu' event.
             //
-            // Guest: team XP and levels are owned by the host, and driving the
-            // bundle's card renderer on a guest throws
-            // "Invalid regular expression /\{(\w+)\}/g: Stack overflow" from the
-            // i18n replace inside showLevelUp(). That throw repeats every frame,
-            // the guest never calls localPicked(), so the host's `waiting` gate
-            // never opens and EVERY player freezes on the level-up screen.
-            // Acknowledge the level immediately instead: the host authors the
-            // choice for the team, the guest just opens the gate.
+            // Guest: as in PokéSurvivor, everyone picks their OWN card on a team
+            // level-up. Queue it like a local level-up: DC.update opens it through
+            // the bundle's own doLevelUp() path on the next 'play' frame, and its
+            // close hook (bundle patch A6 -> __pbLevelPicked) sends 'lp'. (Calling
+            // ui.showLevelUp() directly from here is what used to blow up.)
             const r = runOf();
-            if (!r || !r.coop || r.coop.isHost) return;
-            if (r.state === 'over') return;
-            try { r.coop.localPicked(); } catch (e) { console.warn('[coop] guest level ack', e); }
+            if (!r || !r.coop || r.coop.isHost || r.state === 'over') return;
+            r.queueLevelUp();
+            // Held after our last card? The new card can only open in 'play'.
+            if (R.holding) release(r);
           },
+          // 'lr' (guest) / everyone picked (host): let the run go on.
           resume() {
             const r = runOf();
-            if (r && typeof r.resume === 'function') r.resume();
+            if (!r || !R.holding) return;
+            release(r);
           },
           waiting(names) {
             const r = runOf();
             if (!r || !r.ui) return;
             const others = (names || []).filter(n => n !== 'You' && n !== 'Tú' && n !== (r.player && r.player.uid));
+            R.waitNames = others;
+            if (R.holding) { showWaitPanel(r); return; }   // our card is done: the panel says it
             const k = others.join(',');
             if (k === (R._waitKey || null)) return;   // debounce sendWaiting() repeats
             R._waitKey = k;
@@ -544,16 +595,26 @@
             r.endHow = d && d.why ? d.why : 'lose';
             try { r.finish((d && d.why) === 'win'); } catch (e) { console.warn('[coop] over', e); }
           },
+          // The host owns the enemies and the clock: without it a guest's world
+          // is empty and frozen, so the run ends (PokéSurvivor does the same).
           lost(msg) {
             console.warn('[coop]', msg);
-            showDcBanner('host');
+            const r = runOf();
+            if (!r || r.state === 'over') return;
+            showDcBanner('Lost connection to the host — the run has ended');
+            if (r.ui) r.ui.toast('Lost connection to the host', null);
+            setTimeout(() => {
+              if (r.state === 'over') return;
+              r.endHow = 'lose';
+              try { r.finish(false); } catch (e) { console.warn('[coop] lost', e); }
+            }, 1500);
           },
           say(text, secs) { const r = runOf(); if (r && r.ui) r.ui.toast(text, null); },
           shiny(dex) { const r = runOf(); if (r && r.ui) r.ui.toast('A shiny appeared!', 'shiny-stone'); },
           away(name) { if (name) console.warn('[coop] host away/stalled:', name); },
           mateLeft(m) {
             const r = runOf();
-            if (m && m.name) showDcBanner(m.name);
+            if (m && m.name) showDcBanner(`${m.name} left the run`);
             if (r && r.ui && m) r.ui.toast(`${m.name || 'A player'} left`, null);
           },
           item(id) { /* TODO(no game API): no hook to give a guest a pickup by id. */ },
@@ -587,6 +648,59 @@
         };
       }
 
+      /**
+       * Level-up card closed (bundle patch A6). Tells the session, then says
+       * whether the run must stay paused: with more cards queued we go on to the
+       * next one; otherwise we wait for the teammates still choosing (host: its
+       * `waiting` set; guest: the host's 'lr'). A guest never waits forever: if
+       * 'lr' got lost, it lets itself go after HOLD_MAX.
+       */
+      const HOLD_MAX = 45000;
+      function levelPicked(run) {
+        const coop = run.coop;
+        coop.localPicked();
+        if (run.pendingLevels > 0) return false;
+        const others = coop.isHost ? coop.waiting.size > 0 : true;
+        if (!others) return false;
+        R.holding = true;
+        // Paused behind a real window: DC.update drops a 'modal' state that has
+        // no modal open after 1.5 s ("modal state without a window").
+        run.state = 'modal';
+        showWaitPanel(run);
+        clearTimeout(R.holdTimer);
+        if (!coop.isHost) R.holdTimer = setTimeout(() => { if (R.holding && R.run === run) release(run); }, HOLD_MAX);
+        return true;
+      }
+      globalThis.__pbLevelPicked = levelPicked;
+
+      function release(run) {
+        R.holding = false;
+        R.waitEl = null;
+        clearTimeout(R.holdTimer);
+        if (run.state !== 'modal') return;
+        if (run.pendingLevels > 0) { run.ui.hideModal(); run.state = 'play'; }   // next card opens next frame
+        else run.resume();                                                         // also hides the panel
+      }
+
+      /** "Waiting for: …" window shown while teammates are still on their card. */
+      function showWaitPanel(run) {
+        const names = R.waitNames && R.waitNames.length ? R.waitNames.join(', ') : 'your teammates';
+        if (R.waitEl && R.waitEl.isConnected) { R.waitEl.querySelector('p').textContent = names; return; }
+        const el = document.createElement('div');
+        el.className = 'panel pb-wait-panel';
+        el.style.cssText = 'padding:18px 26px;text-align:center;max-width:420px';
+        const h = document.createElement('h2');
+        h.style.margin = '0 0 6px';
+        h.textContent = 'Waiting for teammates…';
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0';
+        p.textContent = names;
+        el.append(h, p);
+        R.waitEl = el;
+        run.ui.modal(el);
+      }
+
       // Begin the co-op session against a live run. `cfg` is the room ticket from
       // __pbStartCoop; the authoritative seed is the run's own seed (host) or the
       // host's `start` message (guest, captured below in __pbStartCoop).
@@ -599,22 +713,23 @@
         const members = R.members.length ? R.members : (cfg.members || []);
         const isHost = cfg.uid === cfg.host;
         const seed = isHost ? run.seed : (R.remoteSeed != null ? R.remoteSeed : cfg.seed);
-        // Refresh our own member entry with the real dex/name now that the run
-        // exists (best-effort: the placeholder written at create/join time is
-        // replaced as soon as we know the actual species).
+        // Refresh our own member entry with the species we actually play now that
+        // the run exists (the lobby entry is only what was selected back then).
+        // The trainer name stays: it is what the party HUD and name tags show.
+        // Teammates do not depend on this: every frame carries our species
+        // (P.DEX), and their puppet follows it.
         if (run.startSpecies) {
           const self = members.find(m => m.uid === cfg.uid);
-          if (self) {
-            self.dex = run.startSpecies;
-            if (run.player && run.player.data && run.player.data.name) self.name = run.player.data.name;
-          }
+          if (self) { self.dex = run.startSpecies; self.shiny = !!run.shinySkin; }
         }
         R.members = members;
         if (isHost && Net.isOpen()) Net.syncMembers(members.map(m => m.uid));
         coop.begin({ seed, host: cfg.host, members }, run.player, R.game);
         if (isHost) {
-          Net.broadcast({ k: 'start', seed, host: cfg.host, members });
+          Net.broadcast({ k: 'start', seed, host: cfg.host, members, cfg: runCfgOf(run) });
         } else if (R.remoteSeed != null && run.seed !== R.remoteSeed) {
+          // Only if the guest's run was NOT built from the host's config
+          // (__pbRunOverride): a late fallback, the terrain is rebuilt.
           run.seed = R.remoteSeed;
           try { run.buildStage(true); } catch (e) { console.warn('[coop] reseed', e); }
         }
@@ -643,7 +758,7 @@
         if (!coop || !coop.active || typeof globalThis.__pbMakePuppets !== 'function') return [];
         if (run.player && coop.local !== run.player) coop.local = run.player;
         const mates = coop.matesList || [];
-        const members = mates.map(m => ({ uid: m.uid, name: m.name, dex: m.dex || 0, shiny: !!m.shiny }));
+        const members = mates.map(m => ({ uid: m.uid, name: m.name, dex: mateDex(m), shiny: !!m.shiny, color: m.color }));
         let made = [];
         try {
           made = globalThis.__pbMakePuppets(run, members, coop.me) || [];
@@ -662,24 +777,60 @@
           if (!m.connected) continue;
           const p = byUid.get(m.uid) || m.pl;
           if (!p || typeof p.render !== 'function') continue;
-          p.net ||= m.pl && m.pl.net;                 // seed the wire state
-          p.tag ||= m.name;
-          p.tagColor ||= m.color;
-          m.pl = p;
-          coop.mates.set(m.uid, m);
+          adoptPuppet(m, p);
         }
         run.coopPuppets = [...coop.mates.values()].map(m => m.pl);
         return run.coopPuppets;
       }
       globalThis.__pbBuildPuppets = buildPuppets;
 
+      /** The species a mate's puppet must show: its own last frame first. */
+      function mateDex(m) {
+        const n = m.pl && m.pl.net;
+        return (n && n.dex) || m.dex || 0;
+      }
+
+      /** Point `mate.pl` at puppet `p`, carrying over wire state and tag. */
+      function adoptPuppet(m, p) {
+        const old = m.pl;
+        if (old && old !== p) {
+          p.net ||= old.net;                          // keep the wire state
+          if (old._drawOff) p._drawOff = old._drawOff;
+          if (old._tagEl) { old._tagEl.remove(); old._tagEl = null; }
+        }
+        p.tag ||= m.name;
+        p.tagColor ||= m.color;
+        p.netShiny = !!(p.net && p.net.shiny != null ? p.net.shiny : m.shiny);
+        m.pl = p;
+      }
+
+      /**
+       * The teammate is now a different species than its puppet (the lobby had
+       * a stale/placeholder dex, or it evolved): build a puppet of the right one.
+       * A species that fails to build is not retried every frame.
+       */
+      function respecies(run, coop, m, dex) {
+        m.badDex ||= new Set();
+        if (m.badDex.has(dex)) return;
+        try {
+          const one = globalThis.__pbMakePuppets(run, [{ uid: m.uid, name: m.name, dex, color: m.color }], coop.me);
+          if (!one || !one[0] || typeof one[0].render !== 'function') throw new Error('no puppet');
+          m.dex = dex;
+          adoptPuppet(m, one[0]);
+          run.coopPuppets = [...coop.mates.values()].map(x => x.pl);
+        } catch (e) {
+          m.badDex.add(dex);
+          console.warn('[coop] puppet species', dex, e);
+        }
+      }
+
       let partyPanelEl = null;
       let dcBannerEl = null;
       const partyRows = new Map();
 
-      function showDcBanner(name) {
+      function showDcBanner(text) {
         const run = R.run;
-        if (!run || !run.coop || !run.coop.active) return;
+        if (!run || !run.coop) return;   // also after the session ended (host lost)
         if (!dcBannerEl || !dcBannerEl.isConnected) {
           dcBannerEl = document.createElement('div');
           dcBannerEl.id = 'pb-dc-banner';
@@ -696,8 +847,8 @@
           const parent = (run.ui && run.ui.hudEl) || document.getElementById('hud') || document.body;
           parent.append(dcBannerEl);
         }
-        const targetName = name || 'peer';
-        dcBannerEl.querySelector('.pb-dc-text').textContent = `Lost connection to ${targetName} — reconnecting…`;
+        // Nothing reconnects a teammate mid-run (a lost mate stays gone), so do not promise it.
+        dcBannerEl.querySelector('.pb-dc-text').textContent = text || 'A teammate left the run';
         dcBannerEl.style.display = '';
       }
       globalThis.__pbShowDcBanner = showDcBanner;
@@ -897,8 +1048,12 @@
           return;
         }
         for (const m of coop.mates.values()) {
+          if (m.connected && m.pl && m.pl.net && m.pl.net.dex > 0 && m.pl.speciesId !== m.pl.net.dex) {
+            respecies(run, coop, m, m.pl.net.dex);
+          }
           const pl = m.pl, net = pl && pl.net;
           if (!net || !pl.pos || !pl.facing) continue;
+          pl.netShiny = !!net.shiny;
           // `pos` is the TRUE wire position. Any visual separation is applied
           // at draw time by __pbDrawOffset (see server.mjs patch A8), never here:
           // mutating pos would corrupt interpolation and the net round-trip.
@@ -1078,6 +1233,32 @@
         return sd.hostSlot ? sd.hostSlot[localSlot] : localSlot;
       }
 
+      /** What a guest needs to build the very same world: { seed, biome, tier, mode }. */
+      function runCfgOf(run) {
+        return { seed: run.seed, biome: run.biome && run.biome.id, tier: run.tier | 0, mode: run.mode };
+      }
+
+      /** Validated run config from the host (room poll or `start` message). */
+      function cleanRunCfg(c) {
+        if (!c || !Number.isFinite(c.seed)) return null;
+        const out = { seed: c.seed };
+        if (typeof c.biome === 'string' && /^[a-z0-9-]{1,32}$/.test(c.biome)) out.biome = c.biome;
+        if (Number.isInteger(c.tier) && c.tier >= 0 && c.tier <= 20) out.tier = c.tier;
+        if (c.mode === 'standard' || c.mode === 'endless' || c.mode === 'tower') out.mode = c.mode;
+        return out;
+      }
+
+      // coop-ui hands the host's config over right before it walks the guest
+      // through the run-start screens; bundle patch A17 merges it into the run.
+      globalThis.__pbSetRunCfg = c => { R.runCfg = cleanRunCfg(c); };
+      globalThis.__pbRunOverride = () => {
+        const c = R.runCfg;
+        if (!c || !R.room || R.room.isHost) return null;
+        R.runCfg = null;                       // one run only
+        R.remoteSeed = c.seed;
+        return c;
+      };
+
       globalThis.__pbStartCoop = async function (cfg) {
         // cfg: { room, host, uid, members: [{uid,name,dex,shiny}], seed, db? }
         const db = cfg.db || await ensureDb();
@@ -1086,14 +1267,21 @@
         Net.init(db, uid);
         Net.open(cfg.room, uid === cfg.host, cfg.host);
         // Capture the host's `start` at the net layer so a guest that begins late
-        // (after the host already broadcast) still reseeds from the stored seed.
-        Net.on((from, msg) => {
-          if (msg && msg.k === 'start' && msg.seed != null) {
-            R.remoteSeed = msg.seed;
-            R.remoteHost = msg.host;
-            if (msg.members) R.remoteMembers = msg.members;
-          }
-        });
+        // (after the host already broadcast) still knows the host's run. Bound
+        // once: this function runs on create, join, start and every follow.
+        if (!R.startTap) {
+          R.startTap = (from, msg) => {
+            if (msg && msg.k === 'start' && msg.seed != null) {
+              R.remoteSeed = msg.seed;
+              R.remoteHost = msg.host;
+              if (msg.members) R.remoteMembers = msg.members;
+              if (msg.cfg && globalThis.__pbCoopUI && globalThis.__pbCoopUI.hostStarted) {
+                globalThis.__pbCoopUI.hostStarted(msg.cfg);
+              }
+            }
+          };
+          Net.on(R.startTap);
+        }
         const game = gameAdapter();
         R.game = game;
         const coop = new Coop(Net, game);

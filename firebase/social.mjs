@@ -97,11 +97,23 @@ export function socialRoutes(api) {
     open: r.open !== false,
     started: !!r.started,
     seed: r.started ? r.seed : null,
+    // The host's run config (biome/tier/mode): guests build the same world.
+    cfg: r.started && r.cfg ? r.cfg : null,
     at: r.at || 0,
     members: Object.entries(r.m || {})
       .map(([uid, v]) => ({ uid, name: v.name || '', dex: v.dex | 0, shiny: !!v.shiny, at: v.at || 0 }))
       .sort((a, b) => (a.uid === r.host ? -1 : b.uid === r.host ? 1 : a.at - b.at)),
   });
+
+  /** Host's run config as published by POST /rooms/:code/start (validated). */
+  const runCfg = (c) => {
+    if (!c || typeof c !== 'object') return null;
+    const out = {};
+    if (typeof c.biome === 'string' && /^[a-z0-9-]{1,32}$/.test(c.biome)) out.biome = c.biome;
+    if (Number.isInteger(c.tier) && c.tier >= 0 && c.tier <= 20) out.tier = c.tier;
+    if (c.mode === 'standard' || c.mode === 'endless' || c.mode === 'tower') out.mode = c.mode;
+    return Object.keys(out).length ? out : null;
+  };
 
   /** The `GET /friends` payload; also what the client polls. */
   async function friendsPayload(acc) {
@@ -403,6 +415,7 @@ export function socialRoutes(api) {
     room.open = false;
     room.started = true;
     room.seed = Number.isInteger(b.seed) ? b.seed : crypto.randomInt(1, 2 ** 31);
+    room.cfg = runCfg(b.cfg);
     room.at = now();
     await api.saveRoom(room);
     for (const uid of members) await api.setPres(uid, { at: now(), room: room.code, play: true });

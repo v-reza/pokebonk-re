@@ -25,8 +25,10 @@ Open http://127.0.0.1:8080/ → *Play as a guest* → pick a starter → *Play* 
 ## How the client is redirected
 
 `server.mjs` rewrites these while serving (serve-time string patches, applied once,
-cached; a missing anchor logs `[pb-patch] anchor not found` instead of failing
-silently). Nothing is written back to disk:
+cached; a missing anchor logs `[pb-patch] anchor not found` and the game is served
+unpatched). Nothing is written back to disk. The table lives in
+`tools/bundle-patches.mjs` — shared with `tools/prepatch.mjs`, the Vercel build — and
+matches the anchors to the bundle's line endings (CRLF on Windows, LF on Linux):
 
 1. `assets/main-D5OUVqGK-mvilprw2.js` — the game bundle, loaded by the small
    `main-BcyzVqXo-mvilprw2.js` entry via `import()`:
@@ -36,8 +38,22 @@ silently). Nothing is written back to disk:
    - `DC.buildStage`: insert `__pbBuildPuppets(this)` after the local player
    - `DC.update`: insert `__pbSyncPuppets(this)` before `renderWorld`
    - `DC.renderCoopPlayers`: drop the interpolation clock, de-duplicate by uid
-   - `DC.doLevelUp`: call `coop.localPicked()` when the card closes
+   - `DC.doLevelUp`: report the pick (`__pbLevelPicked`) and stay paused behind a
+     "Waiting for teammates…" window until everyone has picked
    - `kh.credit`: guest guard so remote copies never count kills
+   - `kh.strike`: a guest's hit on a remote enemy is computed with the guest's own
+     stats/type chart/crits, forwarded with direction and knockback, shown at once
+     (number, flash, optimistic hp); the move's status roll is forwarded too
+   - `kh.strike` (host): its damage numbers are sent to nearby guests (`hn`)
+   - `Sd.coopRemoteUpdate`: remote rows fade their hit flash
+   - `DC.simulate`: never relocate/cull remote enemy rows on a guest
+   - `Yg.render`: a puppet wears its owner's shiny skin, not the local one
+   - `Interactables.interact`: guests cannot use boss altars, shrines, challenges,
+     cursed totems, nests or portals (the host owns the world)
+   - bundle tail: expose the app as `globalThis.__pbApp` (the lobby reads the
+     selected starter from `meta.profile`)
+   - `MM.openRun`: a guest's run takes the host's seed/biome/tier/mode
+     (`__pbRunOverride`)
 2. `index.html`: drops the `static.cloudflareinsights.com` beacon.
 
 The mirrored bundle already contains the co-op hooks the protocol needs
@@ -68,8 +84,21 @@ the right way, and never gain XP, level up, or take local damage.
 
 ![Guest view](docs/coop/guest-two-players.png)
 
-Known limits: the HUD has no teammate block yet, `enemyAdded` sends `shiny: 0`,
-and ghost casts / remote pickup events are stubs in the bridge adapter.
+Start order: the host starts its run first and publishes its config (seed, biome,
+tier, mode) to the room and in the `start` message; guests build their run from it,
+so both worlds are identical. Each frame carries every player's current species
+(`P.DEX`), so a puppet always shows the right Pokémon, evolutions included. On a
+team level-up everyone picks their own card (as in PokéSurvivor). Guests follow
+the host through portals (frame field `sg`) and share its zone clock (`st`).
+A guest whose run ends sends `bye`; a guest that loses the host ends its run.
+
+Known limits: teammates' attacks have no visuals on the other screens (ghost casts
+are a stub), a dropped teammate cannot rejoin mid-run, there is no revive/spectate
+(a dead guest leaves the run; the host dying ends it for everyone), guests do not
+collect pickups and their gold is overwritten by the host's (shop purchases on a
+guest are not charged to the team purse), enemy projectiles and boss mechanics
+exist only on the host, and endless-mode migration / tower floors are not
+followed by guests.
 ## Languages
 
 English is the default language across the client. A `?lang=xx` URL query parameter and the in-game language selector (persisted in `localStorage['pokebonk.lang']`) override this default for the upstream game content. The co-op UI always renders in English regardless of the active game locale.

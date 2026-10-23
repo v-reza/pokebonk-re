@@ -131,11 +131,17 @@ async function api(method, path, body) {
   return data;
 }
 
+/**
+ * The starter the player has selected. The save is server-side (`meta.profile`),
+ * there is no `pb.save` key: reading it gave 0 for everyone, so the lobby showed
+ * Bulbasaur for every member and teammates fell back to the local starter.
+ * `__pbApp` is exposed by bundle patch A16.
+ */
 const myDex = () => {
-  try {
-    const p = JSON.parse(localStorage.getItem('pb.save') || 'null');
-    return (p && (p.partner || p.lastSpecies)) || 0;
-  } catch { return 0; }
+  const app = globalThis.__pbApp;
+  const run = globalThis.__pb && globalThis.__pb.run;
+  return (run && run.player && run.player.speciesId) ||
+    (app && app.meta && app.meta.profile && app.meta.profile.lastSpecies) || 0;
 };
 
 // ------------------------------------------------------------------ polling ---
@@ -427,7 +433,7 @@ function friendsScreen() {
                 ' · ', 'share it with friends so they can add you.')),
             roomBtn)),
         h('div', { class: 'panel cl-box' },
-          h('div', { class: 'grp-head' }, h('b', {}, 'Your list'), h('small', {}, String((state.friends && state.friends.friends) || []))),
+          h('div', { class: 'grp-head' }, h('b', {}, 'Your list'), h('small', {}, String(((state.friends && state.friends.friends) || []).length))),
           list)),
       addPanel));
   el.querySelectorAll('input').forEach((i) => i.addEventListener('keydown', (e) => e.stopPropagation()));
@@ -707,9 +713,11 @@ async function startLocalRun() {
 }
 
 /**
- * Host: close the room, broadcast the start config through the bridge, then let
- * the bundle's normal run-start path proceed (`__pbStartCoop` + a run appearing).
- * The lobby closes as soon as a run exists.
+ * Host: start OUR run first (region and difficulty are picked on our own region
+ * screen), then publish that run's config — seed, biome, tier, mode — to the
+ * room. Guests build their run from exactly that config (bundle patch A17), so
+ * both worlds are the same from the first frame; the bridge also broadcasts it
+ * in the `start` message, which reaches guests faster than their room poll.
  */
 async function startRun() {
   const room = state.room;
@@ -717,28 +725,54 @@ async function startRun() {
   if (room.host !== state.me.id || (room.members || []).length < 2) return;
   state.starting = true;
   try {
-    const seed = Math.floor(Math.random() * 1e9);
-    const r = await api('POST', `/rooms/${room.code}/start`, { seed });
-    state.room = r.room;
-    const members = (r.room.members || []).map((m) => ({
-      uid: m.uid, name: m.name, dex: m.dex | 0, shiny: !!m.shiny,
+    const members = (room.members || []).map((m) => ({
+      uid: m.uid, name: m.name, dex: m.uid === state.me.id ? myDex() : m.dex | 0, shiny: !!m.shiny,
     }));
-    // Guests pick the seed up from their poll (room.seed) and from the net layer
-    // (`__pbStartCoop` + the host's `start` broadcast); the host begins locally.
-    await joinSession(r.room);
+    await joinSession({ ...room, members });
     if (globalThis.__pbSetMembers) globalThis.__pbSetMembers(members);
-    // Let the guests' poll see the started room + seed before we navigate away.
-    await new Promise((res) => setTimeout(res, 600));
-    // Now walk the bundle's normal run-start path; the bridge begins co-op as
-    // soon as the run object exists. The lobby is already closed at this point.
     const ok = await startLocalRun();
+    const run = globalThis.__pb && globalThis.__pb.run;
+    if (!ok || !run) { state.starting = false; toast('Could not start run.', true); return; }
+    const cfg = { biome: run.biome && run.biome.id, tier: run.tier | 0, mode: run.mode };
+    const r = await api('POST', `/rooms/${room.code}/start`, { seed: run.seed, cfg });
+    state.room = r.room;
     state.starting = false;
-    if (!ok) toast('Could not start run.', true);
   } catch (e) {
     toast(e.message, true);
     state.starting = false;
     render();
   }
+}
+
+/**
+ * Guest: the host's run exists — start ours from its config. Reached from the
+ * room poll (`room.started` + `room.cfg`) and from the host's `start` message
+ * (bridge -> `hostStarted`), whichever comes first; `followed` keeps one run
+ * per host start.
+ */
+async function followHost(cfg, room) {
+  if (!cfg || !Number.isFinite(cfg.seed) || state.starting) return;
+  if (state.followed === cfg.seed) return;
+  if (globalThis.__pb && globalThis.__pb.run) return;
+  room = room || state.room;
+  if (!room || room.host === (state.me && state.me.id)) return;
+  state.starting = true;
+  state.followed = cfg.seed;
+  try {
+    await joinSession(room);
+    if (globalThis.__pbSetRunCfg) globalThis.__pbSetRunCfg(cfg);
+    const ok = await startLocalRun();
+    if (ok) return;       // `starting` is cleared when that run ends (runEnded)
+    state.followed = null;
+    toast('Could not start the run. Retrying…', true);
+  } catch (e) {
+    // Never leave `starting` latched: a hung Firebase/CDN load or a failed run
+    // start used to wedge the guest at "Waiting for host…" forever.
+    state.followed = null;
+    console.warn('[coop] guest start failed', e);
+    toast('Could not join the run. Retrying…', true);
+  }
+  state.starting = false;
 }
 
 // ------------------------------------------------------------------ open/close ---
@@ -796,27 +830,10 @@ async function poll() {
       openFriends();
       return;
     }
-    // Guests follow the host's start: once the room is started, open the
-    // signaling session (with the host's seed) and start their own run.
-    if (f.room && f.room.started && f.room.host !== state.me.id && !state.starting) {
-      state.starting = true;
-      try {
-        await joinSession(f.room);
-        const ok = await startLocalRun();
-        if (ok) {
-          // Leave `starting` set: the lobby closes once the run appears.
-          return;
-        }
-        state.starting = false;
-        toast('Could not start the run. Retrying…', true);
-      } catch (e) {
-        // Never leave `starting` latched: a hung Firebase/CDN load or a failed
-        // run start used to wedge the guest at "Waiting for host…" forever,
-        // because every later poll was skipped by the `!state.starting` guard.
-        state.starting = false;
-        console.warn('[coop] guest start failed', e);
-        toast('Could not join the run. Retrying…', true);
-      }
+    // Guests follow the host's start: once the room is started (the host's run
+    // exists and published its config), start our own run from that config.
+    if (f.room && f.room.started && f.room.host !== state.me.id && f.room.seed != null) {
+      followHost({ ...(f.room.cfg || {}), seed: f.room.seed }, f.room);
       return;
     }
     if (state.screen) render();
@@ -825,16 +842,6 @@ async function poll() {
   }
 }
 
-/** Guest: close the lobby once the run the host started shows up. */
-function waitForRun() {
-  const t0 = Date.now();
-  const wait = () => {
-    if (globalThis.__pb && globalThis.__pb.run) { state.starting = false; close(); return; }
-    if (Date.now() - t0 > 60000) { state.starting = false; render(); return; }
-    setTimeout(wait, 120);
-  };
-  wait();
-}
 
 // --------------------------------------------------------------- CO-OP button ---
 //
@@ -965,6 +972,9 @@ globalThis.__pbCoopUI = {
   get friends() { return state.friends; },
   get screen() { return state.screen; },
   refresh: poll,
+  // Bridge -> UI: the host's `start` message (guest) and the end of any run.
+  hostStarted(cfg) { followHost(cfg); },
+  runEnded() { state.starting = false; },
 };
 
 sessionChanged();

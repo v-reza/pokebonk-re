@@ -14,7 +14,7 @@
 //
 // Messages (over net.mjs, ~15×/s direct, 3×/s relay):
 //   guest -> host  { k:'f', p:[state], ev:[events] }
-//   host -> guest  { k:'f', t, lv, xp, xn, ki, bo, co, p:{uid:[state]},
+//   host -> guest  { k:'f', t, lv, xp, xn, ki, bo, co, sg, st, p:{uid:[state]},
 //                    e:[[slot,x,y,hp,anim,dir,status]], ev:[events] }
 //   host -> all    { k:'start', seed, host, members:[{uid,name,dex,shiny}] }
 //
@@ -40,7 +40,10 @@
 //
 // Wire enemy row  [slot, x, y, hp, anim, dir, status]:
 //   slot   Int32 slot index into the Sd arrays (stable for the enemy's life)
-//   x      Sd.x[slot]        (horizontal, world X)
+//   x      Sd.x[slot]        (horizontal, world X, in hundredths: PokéBonk
+//                             works in metres, so whole units — PokéSurvivor's
+//                             pixels — made enemies crawl in 1 m jumps or look
+//                             frozen while they walked)
 //   y      Sd.z[slot]        (horizontal depth, world Z — PokéBonk's "y" is
 //                             height and is NOT sent; the guest recomputes it
 //                             from the terrain)
@@ -54,10 +57,10 @@
 //
 // ---------------------------------------------------------------------------
 // FIELD MAPPING — player state (wire array)  [x,y,angle,walking,hp,maxHp,dead,
-//   level,aim,xpMul,reviveT,choosing,doneSeq,watching]
+//   level,aim,xpMul,reviveT,choosing,doneSeq,watching,dex,shiny]
 // ---------------------------------------------------------------------------
-//   0 x        round(pos.x)
-//   1 y        round(pos.z)          (horizontal depth)
+//   0 x        pos.x, hundredths
+//   1 y        pos.z, hundredths     (horizontal depth)
 //   2 angle    facing angle (atan2(facing.x, facing.z))
 //   3 walking  speedNow > 0.1 ? 1 : 0
 //   4 hp       round(hp)
@@ -70,12 +73,17 @@
 //  11 choosing level-up card open ? 1 : 0
 //  12 doneSeq  level card chosen sequence
 //  13 watching uid of the teammate being spectated, or ''
+//  14 dex      species the player is CURRENTLY (its starter, or what it evolved
+//              into): the puppet others draw follows it, so a stale lobby
+//              entry or an evolution never shows the wrong Pokémon
+//  15 shiny    1 if that player plays with the shiny skin
 // ---------------------------------------------------------------------------
 
 import * as Net from './net.mjs';
 
 // Message rates and culling (unchanged from the reference).
-export const NEAR = 950;                 // enemy radius sent per guest
+export const NEAR = 90;                  // enemy radius (m) sent around each guest
+export const NEAR_HURT = 45;             // damage numbers only for guests this close (m)
 export const RATE_FAST = 1 / 15;         // 15 Hz direct
 export const RATE_SLOW = 1 / 3;          // 3 Hz relay fallback
 export const DIRECT_TIMEOUT = 9000;      // ms to get a direct channel
@@ -89,7 +97,8 @@ export const ST = { BURN: 1, POISON: 2, SHIELD: 4, SLOW: 8 };
 // Player state indices (see field-mapping table above).
 export const P = {
   X: 0, Y: 1, ANGLE: 2, WALKING: 3, HP: 4, MAXHP: 5, DEAD: 6, LEVEL: 7,
-  AIM: 8, XPMUL: 9, REVIVE: 10, CHOOSING: 11, DONESEQ: 12, WATCHING: 13
+  AIM: 8, XPMUL: 9, REVIVE: 10, CHOOSING: 11, DONESEQ: 12, WATCHING: 13,
+  DEX: 14, SHINY: 15
 };
 // Enemy row indices.
 export const E = { SLOT: 0, X: 1, Y: 2, HP: 3, ANIM: 4, DIR: 5, STATUS: 6 };
@@ -152,15 +161,16 @@ export function enemyRowOf(sd, i) {
  */
 export function serializeEnemyFrame(enemySlots) {
   return enemySlots.map(e =>
-    [e.slot, r1(e.x), r1(e.y), Math.ceil(e.hp), e.anim, e.dir, e.status]);
+    [e.slot, r2(e.x), r2(e.y), Math.ceil(e.hp), e.anim, e.dir, e.status]);
 }
 
 /** Serialize one player's state to the wire array (see P indices). */
 export function serializePlayerState(p) {
   return [
-    r1(p.x), r1(p.y), r2(p.angle), p.walking ? 1 : 0, r1(p.hp), r1(p.maxHp),
+    r2(p.x), r2(p.y), r2(p.angle), p.walking ? 1 : 0, r1(p.hp), r1(p.maxHp),
     p.dead ? 1 : 0, r1(p.level ?? 1), r2(p.aim ?? p.angle), r2(p.xpMul ?? 1),
-    r2(p.reviveT ?? 0), p.choosing ? 1 : 0, p.doneSeq ?? 0, p.watching ?? ''
+    r2(p.reviveT ?? 0), p.choosing ? 1 : 0, p.doneSeq ?? 0, p.watching ?? '',
+    p.dex | 0, p.shiny ? 1 : 0
   ];
 }
 
@@ -200,7 +210,9 @@ export function readPlayerState(a) {
     reviveT: num(a[P.REVIVE], 0, 0, 60),
     choosing: a[P.CHOOSING] === undefined ? undefined : a[P.CHOOSING] ? 1 : 0,
     doneSeq: num(a[P.DONESEQ], 0, 0, 1e9),
-    watching: typeof a[P.WATCHING] === 'string' ? a[P.WATCHING].slice(0, 64) : ''
+    watching: typeof a[P.WATCHING] === 'string' ? a[P.WATCHING].slice(0, 64) : '',
+    dex: num(a[P.DEX], 0, 0, 5000) | 0,
+    shiny: a[P.SHINY] ? 1 : 0
   };
 }
 
@@ -214,8 +226,8 @@ export function buildGuestFrame(state, ev = []) {
 }
 
 /** Host -> guest frame. */
-export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd }) {
-  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd };
+export function buildHostFrame({ t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st }) {
+  return { k: 'f', t, lv, xp, xn, ki, bo, co, p, e, ev, lu, sd, sg, st };
 }
 
 /** Host -> all start message. */
@@ -262,6 +274,7 @@ export class Coop {
     this.flushT = 0;
     this.hitFrom = null;
     this.waiting = new Set();
+    this.owed = new Map();       // uid -> level-up cards still to pick (host)
     this.hostAway = false;
     this.stalled = false;
     this.lastHostAt = 0;
@@ -289,6 +302,7 @@ export class Coop {
     this.outEv = [];
     this.flushT = 0;
     this.waiting = new Set();
+    this.owed = new Map();       // uid -> level-up cards still to pick (host)
     this.hostAway = false;
     this.stalled = false;
     this.lastHostAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -304,10 +318,13 @@ export class Coop {
         pl.x = x; pl.z = y; pl.uid = this.me; pl.coopHost = this.host; pl.tagColor = COLORS[i % COLORS.length];
         continue;
       }
+      // `dex`/`shiny` travel with the mate (as in PokéSurvivor's begin(), which
+      // builds each puppet from `m.dex`): the puppet factory reads them, and
+      // without them every teammate fell back to OUR starter.
       const mate = {
-        uid: m.uid, name: m.name, color: COLORS[i % COLORS.length],
+        uid: m.uid, name: m.name, color: COLORS[i % COLORS.length], dex: m.dex | 0, shiny: !!m.shiny,
         pl: { uid: m.uid, name: m.name, tag: m.name, tagColor: COLORS[i % COLORS.length], remote: true, x, y, dead: false },
-        connected: true, q: [], flushT: 0, xpMul: 1, state: null
+        connected: true, q: [], flushT: 0, xpMul: 1, state: null, synced: false
       };
       mate.pl.net = { x, y, ang: Math.PI / 2, walk: 0, hp: 1, maxHp: 1, dead: 0 };
       this.mates.set(m.uid, mate);
@@ -327,6 +344,7 @@ export class Coop {
     this.mates.clear();
     this.outEv = [];
     this.waiting = new Set();
+    this.owed = new Map();       // uid -> level-up cards still to pick (host)
     if (this._onMsg) { this.net.off(this._onMsg); this._onMsg = null; }
   }
 
@@ -353,7 +371,8 @@ export class Coop {
       hp: pl.hp, maxHp: pl.maxHp, dead: pl.dead ? 1 : 0, level: pl.level,
       aim: pl.aim ?? 0, xpMul: pl.xpMul, reviveT: pl.reviveT,
       choosing: this.game && this.game.choosing ? this.game.choosing() : 0,
-      doneSeq: this.doneSeq, watching: this.game && this.game.watching ? this.game.watching() : ''
+      doneSeq: this.doneSeq, watching: this.game && this.game.watching ? this.game.watching() : '',
+      dex: pl.speciesId ?? pl.dex ?? 0, shiny: pl.shiny ? 1 : 0
     };
   }
 
@@ -372,12 +391,16 @@ export class Coop {
     const ev = m.q; m.q = [];
     return buildHostFrame({
       t: r2(st.time), lv: st.level, xp: r2(st.xp), xn: st.xpNext, ki: st.kills,
-      bo: st.bosses, co: st.coins, p, e: g.enemyList ? g.enemyList(this.me) : [],
-      ev
+      // Enemies around THAT guest (PokéSurvivor's viewOf(m)), not around the host.
+      bo: st.bosses, co: st.coins, p, e: g.enemyList ? g.enemyList(m) : [],
+      ev, sg: st.stage, st: st.stageTime != null ? r2(st.stageTime) : undefined
     });
   }
 
-  flushAll() { for (const m of this.mates.values()) if (m.connected) this.net.send(m.uid, this.hostFrame(m)); }
+  flushAll() {
+    if (!this.host) return;     // a guest has no host frame to send
+    for (const m of this.mates.values()) if (m.connected) this.net.send(m.uid, this.hostFrame(m));
+  }
 
   flushClient(force) {
     if (!force && !this.outEv.length && this.flushT > 0) return;
@@ -430,7 +453,7 @@ export class Coop {
     const m = this.mates.get(u);
     if (!m || !m.connected) return;
     m.connected = false;
-    if (this.waiting.has(u)) this.picked(u);
+    if (this.waiting.has(u)) { this.owed.set(u, 1); this.picked(u); }
     if (this.game.mateLeft) this.game.mateLeft(m);
   }
 
@@ -442,6 +465,13 @@ export class Coop {
       m.state = msg.p;
       m.pl.net = readPlayerState(msg.p);
       m.xpMul = m.pl.net.xpMul || 1;
+    }
+    // First frame from this guest: its run (and its Coop) exists only now, so
+    // every 'ne' we queued before was dropped on arrival. Send the live enemies
+    // again or they stay invisible to it for the rest of the run.
+    if (!m.synced) {
+      m.synced = true;
+      if (this.game.enemySnapshot) for (const ev of this.game.enemySnapshot()) m.q.push(ev);
     }
     for (const ev of msg.ev || []) {
       switch (ev[0]) {
@@ -480,7 +510,7 @@ export class Coop {
     for (const ev of msg.ev || []) this.applyHostEvent(ev);
     this.game.syncTeam({
       time: msg.t, level: msg.lv, xp: msg.xp, xpNext: msg.xn, kills: msg.ki,
-      bosses: msg.bo, coins: msg.co
+      bosses: msg.bo, coins: msg.co, stage: msg.sg, stageTime: msg.st
     });
     for (const u in msg.p || {}) {
       const m = this.mates.get(u);
@@ -533,13 +563,14 @@ export class Coop {
   }
 
   /** Guest: your hit on an enemy goes to the host. */
-  hit(e, d, color, dx, dy, knock) { this.outEv.push(['h', e, d, color, r1(dx), r1(dy), knock || 0]); }
-  status(e, kind, val) { this.outEv.push(['s', e, kind, val]); }
+  // dx/dy are a unit direction: whole units (r1) turned every one into 0 or ±1.
+  hit(e, d, color, dx, dy, knock) { this.outEv.push(['h', e, r2(d), color, r2(dx), r2(dy), r2(knock || 0)]); }
+  status(e, kind, val) { this.outEv.push(['s', e, kind, r2(val)]); }
 
-  /** Host hooks. */
-  hurtShown(e, d, color) { this.emitNear(['hn', e, d, color], e.x, e.y, this.hitFrom); }
+  /** Host hooks. `e` is the enemy SLOT; (x, z) where it stands. */
+  hurtShown(e, d, color, x, z) { if (this.host) this.emitNear(['hn', e, Math.round(d), color], x, z, this.hitFrom); }
   enemyAdded(e) {
-    this.emit(['ne', e.slot, e.species, r1(e.x), r1(e.z), e.boss ? 1 : 0, e.shiny ? 1 : 0, Math.ceil(e.maxHp), r2(e.dmg), e.behavior]);
+    this.emit(['ne', e.slot, e.species, r2(e.x), r2(e.z), e.boss ? 1 : 0, e.shiny ? 1 : 0, Math.ceil(e.maxHp), r2(e.dmg), e.behavior]);
   }
   enemyGone(e, died) { this.emit([died ? 'ed' : 'eg', e.slot]); }
   enemyShot(p, type) { this.emit(['es', r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), r2(p.dmg), p.r, p.life, type, p.cat]); }
@@ -557,8 +588,16 @@ export class Coop {
 
   // --- shared level-up card ---
   levelStart(level) {
-    this.waiting = new Set([this.me]);
-    for (const m of this.mates.values()) if (m.connected) this.waiting.add(m.uid);
+    // DC.doLevelUp calls this on everyone; only the host owns the shared card.
+    // A guest that ran it flushed HOST frames at the host.
+    if (!this.host) return;
+    // Count cards per player instead of resetting the set: with two level-ups
+    // queued, a teammate's pick for the FIRST card must not clear it from the
+    // second, or the host resumes while that teammate is still choosing.
+    const owe = u => this.owed.set(u, (this.owed.get(u) || 0) + 1);
+    owe(this.me);
+    for (const m of this.mates.values()) if (m.connected) owe(m.uid);
+    this.waiting = new Set(this.owed.keys());
     this.levelSeq++; this.levelNow = level;
     this.emit(['lu', level, this.levelSeq]);
     this.flushAll();
@@ -573,7 +612,11 @@ export class Coop {
   }
 
   picked(u) {
-    if (!this.waiting.delete(u)) return;
+    const c = this.owed.get(u) || 0;
+    if (!c) return;
+    if (c > 1) { this.owed.set(u, c - 1); return; }
+    this.owed.delete(u);
+    this.waiting.delete(u);
     if (this.waiting.size) { this.sendWaiting(); return; }
     this.emit(['lr']);
     this.flushAll();
@@ -585,18 +628,31 @@ export class Coop {
     else { this.doneSeq = this.seenSeq; this.outEv.push(['lp']); this.flushClient(true); }
   }
 
+  /** Your run ended. Host: the run ends for everyone. Guest: you leave it. */
   over(data) {
-    this.emit(['ov', data]);
-    this.flushAll();
+    if (!this.active) return;
+    if (this.host) {
+      this.emit(['ov', data]);
+      this.flushAll();
+    } else {
+      // A guest that died or quit used to vanish silently (and flushed host
+      // frames at the host): its puppet stood there until the peer timed out.
+      this.outEv.push(['bye']);
+      this.flushClient(true);
+    }
     this.end();
   }
 
-  emitNear(ev, x, y, except) {
+  /** Leave the session mid-run (same as PokéSurvivor's Coop.leave). */
+  leave() { this.over({ why: 'host' }); }
+
+  emitNear(ev, x, z, except) {
     for (const m of this.mates.values()) {
       if (!m.connected || m.uid === except) continue;
       const v = m.pl;
-      const dx = v.x - x, dy = (v.y || 0) - y;
-      if (dx * dx + dy * dy > 700 * 700) continue;
+      const px = v.pos ? v.pos.x : (v.net ? v.net.x : v.x), pz = v.pos ? v.pos.z : (v.net ? v.net.y : (v.y || 0));
+      const dx = px - x, dz = pz - z;
+      if (dx * dx + dz * dz > NEAR_HURT * NEAR_HURT) continue;
       if (m.q.length > 400) continue;
       m.q.push(ev);
     }
