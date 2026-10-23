@@ -4,5 +4,5 @@ node_modules
 docs
 *.md
 dist
-data
+/data
 .env.local
