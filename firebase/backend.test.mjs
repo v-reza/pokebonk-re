@@ -10,7 +10,7 @@
 // plus register/login, name availability, leaderboard and auth failures.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBackend, MemoryDB } from './backend.mjs';
+import { createBackend, MemoryDB, FirestoreDB } from './backend.mjs';
 
 const backend = createBackend(new MemoryDB());
 
@@ -404,4 +404,74 @@ test('rooms: invite without a room creates one; decline and join by code', async
   const missing = await call('POST', '/rooms/ZZZZZZ/join', { token: tb });
   assert.equal(missing.status, 404);
   assert.equal(missing.json.error, 'That room no longer exists.');
+});
+
+// --------------------------------------------------- Firestore room adapter ----
+// The API runs on every lambda instance (and scales horizontally), so the room
+// an instance wrote is not necessarily in that instance's memory. `myRoom` used
+// to read only that map: /friends then answered "no room" on any other instance
+// and the client showed "The room has closed"/lost the lobby. The adapter must
+// find the room in Firestore via its queryable `uids` array.
+
+/** Minimal Firestore fake: documents, doc get/set/delete, array-contains query. */
+function fakeFirestore() {
+  const cols = new Map();
+  const coll = (name) => {
+    if (!cols.has(name)) cols.set(name, new Map());
+    return cols.get(name);
+  };
+  return {
+    collection(name) {
+      const c = coll(name);
+      return {
+        doc(id) {
+          return {
+            id,
+            async get() { return { id, exists: c.has(id), data: () => c.get(id) }; },
+            async set(v) { c.set(id, JSON.parse(JSON.stringify(v))); },
+            async delete() { c.delete(id); },
+          };
+        },
+        where(field, op, value) {
+          assert.equal(op, 'array-contains');
+          return {
+            limit() { return this; },
+            async get() {
+              const found = [...c.entries()].filter(([, d]) => Array.isArray(d[field]) && d[field].includes(value));
+              return { empty: found.length === 0, docs: found.slice(0, 1).map(([id, d]) => ({ id, data: () => d })) };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** A FirestoreDB adapter over a shared fake Firestore; `fresh` = another instance. */
+const firestoreAdapter = (db) => Object.assign(Object.create(FirestoreDB.prototype), { _social: null, db }).social();
+
+test('rooms: myRoom finds a room saved by another instance', async () => {
+  const fs = fakeFirestore();
+  const a = firestoreAdapter(fs);   // instance that created the room
+  const b = firestoreAdapter(fs);   // another lambda, empty memory
+  const room = {
+    code: 'ABC123', host: 'u1', open: true, started: false, seed: null, at: 1,
+    m: { u1: { name: 'A', at: 1 }, u2: { name: 'B', at: 1 } },
+  };
+  await a.saveRoom(room);
+
+  const viaB = await b.myRoom('u2');
+  assert.equal(viaB.code, 'ABC123');
+  assert.deepEqual(viaB.uids.sort(), ['u1', 'u2']);
+  assert.equal(await b.myRoom('stranger'), null);
+
+  // Leaving updates membership for the next instance too.
+  delete room.m.u2;
+  await a.saveRoom(room);
+  assert.equal(await b.myRoom('u2'), null);
+  assert.equal((await b.myRoom('u1')).code, 'ABC123');
+
+  // Closing the room removes it.
+  await a.delRoom('ABC123');
+  assert.equal(await b.myRoom('u1'), null);
 });

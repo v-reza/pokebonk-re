@@ -879,15 +879,38 @@ export class FirestoreDB {
         }
       },
       myRoom: async (uid) => {
-        // No index on map keys: read the rooms this server has touched. Local
-        // rooms are short-lived (a lobby), so the in-process map is complete for
-        // anyone playing through this instance.
-        for (const r of mem.rooms.values()) if (r.m && r.m[uid]) return r;
+        // The room lives in Firestore, but the API runs on every lambda instance
+        // (and on any horizontally scaled host): the in-process map only holds
+        // the rooms THIS instance wrote. Reading it alone made /friends report
+        // "no room" whenever the poll landed on another instance, which the
+        // client shows as "The room has closed" (and leaves the player with no
+        // lobby, so they cannot choose a Pokémon). `uids` is the queryable copy
+        // of the member map's keys.
+        try {
+          const q = await col('social_rooms').where('uids', 'array-contains', uid).limit(1).get();
+          if (!q.empty) {
+            const r = q.docs[0].data();
+            mem.rooms.set(r.code, r);
+            return r;
+          }
+          // A successful query is authoritative: this player is in no room.
+          // Only legacy docs (written before `uids` existed) have no entry to
+          // find here, so the instance map is consulted for those alone.
+        } catch {
+          // Query unavailable (missing index/rule): this instance's map is all
+          // that is left.
+        }
+        for (const r of mem.rooms.values()) {
+          if (r.m && r.m[uid] && !Array.isArray(r.uids)) return r;
+        }
         return null;
       },
       saveRoom: async (r) => {
-        mem.rooms.set(r.code, r);
-        await doc('social_rooms', r.code).set({ ...r }).catch(() => {});
+        const uids = Object.keys(r.m || {});
+        mem.rooms.set(r.code, { ...r, uids });
+        // `uids` mirrors Object.keys(r.m): Firestore cannot query dynamic map
+        // keys, so membership has to be an array field.
+        await doc('social_rooms', r.code).set({ ...r, uids }).catch(() => {});
       },
       delRoom: async (code) => {
         mem.rooms.delete(code);

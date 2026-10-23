@@ -44,6 +44,13 @@ const state = {
   starting: false,
   mounted: null,            // the element we appended to #ui
   el: {},                   // cached nodes for in-place updates
+  roomMiss: 0,              // consecutive /friends polls without our room
+  membersKey: '',           // last member list handed to the net layer
+  pendingRun: null,         // a started room we did NOT auto-enter (host start)
+  lobbyBaseline: undefined, // 'code:seed' already seen when the lobby opened
+  finishedRunKey: null,     // 'code:seed' this tab already played to the end
+  rosterRetry: false,
+  rosterTries: 0,
 };
 
 // ------------------------------------------------------------- tiny helpers ---
@@ -146,6 +153,65 @@ const myDex = () => {
   return (run && run.player && run.player.speciesId) ||
     (app && app.meta && app.meta.profile && app.meta.profile.lastSpecies) || 0;
 };
+
+// --------------------------------------------------------- run-follow intent ---
+// A room stays `started` forever (the lobby is reused for one run), so a client
+// that merely IS a member must not launch into that run on its own: that is the
+// "I did nothing and the game suddenly started" report. Two explicit signals
+// allow it:
+//   1. the start happens WHILE the lobby is open (the host pressed Start), or
+//   2. this tab was in that run and reloaded (a short-lived intent in storage).
+const FOLLOW_KEY = 'pb.coop.follow';
+const FOLLOW_TTL = 30 * 60 * 1000;
+const runKeyOf = (room, seed) => (room && seed != null ? `${room.code}:${seed}` : null);
+
+function followIntent() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FOLLOW_KEY) || 'null');
+    if (v && v.code && Number.isFinite(v.seed) && Date.now() - (v.at || 0) < FOLLOW_TTL) return v;
+  } catch { /* corrupt entry */ }
+  return null;
+}
+
+function intentMatches(room, seed) {
+  const v = followIntent();
+  return !!(v && room && v.code === room.code && v.seed === seed);
+}
+
+function rememberFollow(room, seed) {
+  try { localStorage.setItem(FOLLOW_KEY, JSON.stringify({ code: room.code, seed, at: Date.now() })); } catch { /* private mode */ }
+}
+
+function forgetFollow() {
+  try { localStorage.removeItem(FOLLOW_KEY); } catch { /* private mode */ }
+}
+
+/**
+ * Host: keep the net layer's peer set equal to the room while it is open. Doing
+ * this only at run start left the guests on the database relay (3 frames/s) for
+ * the first 10-15 s of every game, because the WebRTC handshake started then.
+ * Pushing the member list from the lobby poll warms the direct channel up first.
+ */
+function syncRoomMembers(room) {
+  // The lobby warms the channel up; during a run the Coop session owns the
+  // peers (and re-dialing a guest the run already declared gone would be noise).
+  if (state.screen !== 'lobby') return;
+  const members = (room.members || []).map((m) => ({
+    uid: m.uid, name: m.name, dex: m.dex | 0, shiny: !!m.shiny,
+  }));
+  const key = room.code + '|' + members.map((m) => m.uid).join(',');
+  const net = globalThis.__pbNet;
+  const me = state.me && state.me.id;
+  // The list may be unchanged while the net layer only just opened (the
+  // Firebase SDK load can outlive the first polls), so "same list" alone is not
+  // enough: make sure every other member actually has a peer.
+  const pending = net && net.isHostNow && net.isHostNow() && net.isOpen && net.isOpen()
+    ? members.some((m) => m.uid !== me && !net.peerUids().includes(m.uid))
+    : false;
+  if (key === state.membersKey && !pending) return;
+  state.membersKey = key;
+  if (globalThis.__pbSetMembers) globalThis.__pbSetMembers(members);
+}
 
 // ------------------------------------------------------------------ polling ---
 
@@ -503,7 +569,17 @@ function connText(m, room) {
 
 function lobbyScreen() {
   const room = state.room;
-  if (!room) { state.screen = 'friends'; return friendsScreen(); }
+  if (!room) {
+    // Do NOT swap to the friends screen here. The room arrives one poll later
+    // (or when acceptInvite resolves); changing `state.screen` made that swap
+    // permanent, leaving the player outside the room and without the Pokémon
+    // picker even though they were a member.
+    return h('div', { class: 'screen dim blur sec fr', 'data-kind': 'lobby' },
+      head('Room', 'Loading…', () => { openFriends(); }),
+      h('div', { class: 'cl-hub' },
+        h('div', { class: 'panel cl-box' },
+          h('p', { class: 'muted', style: 'margin:0' }, 'Loading your room…'))));
+  }
   const me = state.me;
   const isHost = room.host === me.id;
   const members = room.members || [];
@@ -603,13 +679,25 @@ function lobbyScreen() {
   const connecting = members.some((m) => m.uid !== room.host && connText(m, room) === 'Connecting…');
   const failed = members.some((m) => m.uid !== room.host && connText(m, room) === 'Failed to connect (retrying…)');
   const choosing = members.filter((m) => !m.ready);
-  const canStart = isHost && members.length >= 2 && !connecting && !failed && !choosing.length;
-  const note = members.length < 2 ? (isHost ? 'You need at least one friend in the room.' : 'Waiting for players…')
-    : choosing.length ? `Waiting for ${choosing.map((m) => m.uid === me.id ? 'you' : m.name).join(', ')} to choose a Pokémon.`
-      : !isHost ? 'Everyone is ready. The game starts for everyone at the same time.'
-        : failed ? 'Could not connect to a friend: network restrictions prevent peer-to-peer play.'
-          : connecting ? 'Connecting to your friends…'
-            : 'Everyone is ready. The game starts for everyone at the same time.';
+  // A room is reused for exactly one run: once `started`, this lobby is not a
+  // setup screen any more — it is a way back into that run (or a dead end the
+  // host leaves). Starting again from here is what made runs "just start".
+  const roomStarted = !!room.started;
+  const inRun = !!(globalThis.__pb && globalThis.__pb.run);
+  const finished = roomStarted && !inRun && state.finishedRunKey === runKeyOf(room, room.seed);
+  const canStart = isHost && members.length >= 2 && !connecting && !failed && !choosing.length && !roomStarted;
+  const note = roomStarted
+    ? (inRun ? 'This room is playing a run.'
+      : finished ? (isHost ? 'This room already played its run. Leave the room to set up a new game.'
+        : 'This room has already played its run. Leave the room to join another game.')
+        : (isHost ? 'This room is already playing a run. You can rejoin it, but it cannot be changed.'
+          : 'A run is already in progress in this room. Rejoin it, or wait for the host.'))
+    : members.length < 2 ? (isHost ? 'You need at least one friend in the room.' : 'Waiting for players…')
+      : choosing.length ? `Waiting for ${choosing.map((m) => m.uid === me.id ? 'you' : m.name).join(', ')} to choose a Pokémon.`
+        : !isHost ? 'Everyone is ready. The game starts for everyone at the same time.'
+          : failed ? 'Could not connect to a friend: network restrictions prevent peer-to-peer play.'
+            : connecting ? 'Connecting to your friends…'
+              : 'Everyone is ready. The game starts for everyone at the same time.';
 
   const el = h('div', { class: 'screen dim blur sec fr', 'data-kind': 'lobby' },
     head('Room', isHost
@@ -630,12 +718,19 @@ function lobbyScreen() {
       inviteBox,
       h('div', { class: 'pb-lob-foot' },
         h('button', { class: 'btn ghost', onclick: leaveLobby }, 'Leave room'),
-        isHost
-          ? h('button', {
-            class: 'btn big green pb-start', disabled: !canStart || state.starting,
-            onclick: startRun,
-          }, state.starting ? 'Starting…' : `Start run (${members.length})`)
-          : h('div', { class: 'pb-wait' }, 'Waiting for host…'),
+        roomStarted
+          ? finished
+            ? h('div', { class: 'pb-wait' }, 'Run finished')
+            : h('button', {
+              class: 'btn big green pb-start', disabled: inRun,
+              onclick: () => rejoinRun(room),
+            }, 'Rejoin run')
+          : isHost
+            ? h('button', {
+              class: 'btn big green pb-start', disabled: !canStart || state.starting,
+              onclick: startRun,
+            }, state.starting ? 'Starting…' : `Start run (${members.length})`)
+            : h('div', { class: 'pb-wait' }, 'Waiting for host…'),
         h('small', { class: 'muted pb-note' }, note))));
   return el;
 }
@@ -655,12 +750,30 @@ function speciesName(dex) {
   return NAMES.get(dex) || (dex ? `#${String(dex).padStart(3, '0')}` : '');
 }
 
-/** The Pokémon this player may take into a run: its League roster. */
+/**
+ * The Pokémon this player may take into a run: its League roster. While the
+ * game profile is still loading the list is empty, which left the lobby on
+ * "Loading your Pokémon…" forever if nothing else re-rendered it; fall back to
+ * the species this player already plays with and retry once.
+ */
 function myRoster() {
   const meta = globalThis.__pbApp && globalThis.__pbApp.meta;
   const league = meta && meta.profile && meta.profile.league;
-  if (!Array.isArray(league)) return [];
-  return league.filter((id) => { try { return meta.inLeague(id); } catch { return false; } });
+  const out = Array.isArray(league)
+    ? league.filter((id) => { try { return meta.inLeague(id); } catch { return false; } })
+    : [];
+  if (out.length) return out;
+  const dex = myDex();
+  if (dex) { state.rosterTries = 0; return [dex]; }
+  if (state.screen === 'lobby' && !state.rosterRetry && state.rosterTries < 20) {
+    state.rosterTries += 1;
+    state.rosterRetry = true;
+    setTimeout(() => {
+      state.rosterRetry = false;
+      if (state.screen === 'lobby') render(true);
+    }, 800);
+  }
+  return out;
 }
 
 /** Regions the host has unlocked, with the highest difficulty for each. */
@@ -870,12 +983,27 @@ async function startRun() {
     const net = globalThis.__pbNet;
     if (net && net.isOpen && net.isOpen()) net.broadcast({ k: 'go', seed, cfg });
     state.starting = false;
+    state.lobbyBaseline = runKeyOf(r.room, seed);
+    state.pendingRun = null;
     followHost({ ...cfg, seed }, r.room);
   } catch (e) {
     toast(e.message, true);
     state.starting = false;
     render();
   }
+}
+
+/**
+ * Explicit way into a room whose run is already going (the player was on another
+ * screen when it started, or the room was already started when they opened it).
+ */
+function rejoinRun(room) {
+  room = room || state.room;
+  if (!room || room.seed == null) { toast('The run is no longer available.', true); return; }
+  const cfg = { ...(room.cfg || {}), seed: room.seed };
+  state.lobbyBaseline = runKeyOf(room, cfg.seed);
+  state.pendingRun = null;
+  followHost(cfg, room);
 }
 
 /**
@@ -895,7 +1023,12 @@ async function followHost(cfg, room) {
   state.followed = cfg.seed;
   try {
     const ok = await launchRun(cfg, room);
-    if (ok) return;       // `starting` is cleared when that run ends (runEnded)
+    if (ok) {
+      // Reloading mid-run must bring us back; reloading after it ended must not
+      // start it again (runEnded clears this intent).
+      rememberFollow(room, cfg.seed);
+      return;       // `starting` is cleared when that run ends (runEnded)
+    }
     state.followed = null;
     toast('Could not start the run. Retrying…', true);
   } catch (e) {
@@ -935,6 +1068,9 @@ function openFriends() {
 function openLobby() {
   if (!sessionChanged()) return;
   state.roomAt = Date.now();
+  // First look at the room decides whether a started run happened while we
+  // were watching (auto-enter) or was already running (ask, do not barge in).
+  state.lobbyBaseline = undefined;
   dismissTour();
   state.screen = 'lobby';
   startPolling();
@@ -961,21 +1097,68 @@ async function poll() {
     // about it: it used to bounce a player who had just joined out of the lobby.
     if (!f.room && state.roomAt && asked < state.roomAt) f.room = state.room;
     state.friends = f;
-    if (f.room) state.room = f.room;
+    if (f.room) {
+      state.room = f.room;
+      state.roomMiss = 0;
+    } else if (state.screen === 'lobby' && state.room) {
+      // One miss does NOT mean the room closed. On a horizontally scaled API
+      // (Vercel) a poll can land on an instance that has not seen the room, and
+      // the old code answered that with "The room has closed" + a jump to the
+      // friends screen — which also removed the Pokémon picker. Ask for the
+      // room we know by code before believing it.
+      let still = null;
+      try {
+        const r = await api('GET', `/rooms/${encodeURIComponent(state.room.code)}`);
+        still = r && r.room;
+      } catch (e) {
+        if (e.status !== 404) return;   // a network blip is not a closed room
+      }
+      if (still) {
+        state.room = still;
+        f.room = still;
+        state.roomMiss = 0;
+      } else {
+        state.roomMiss += 1;
+        if (state.roomMiss < 2) { if (state.screen) render(); return; }
+        state.room = null;
+        toast('The room has closed.', true);
+        openFriends();
+        return;
+      }
+    }
     considerInvite(f.invite);
-    // A guest lands in the lobby as soon as the host's invite is accepted in
-    // another tab, and leaves it when the host closes the room.
-    if (state.screen === 'lobby' && !f.room) {
-      state.room = null;
-      toast('The room has closed.', true);
-      openFriends();
+
+    if (f.room) {
+      // Host: connect peers while the lobby is still open, not at Start.
+      syncRoomMembers(f.room);
+    }
+
+    // Guests follow the host's start. Only when it happens while this tab is
+    // watching the lobby, or when this tab had a live run here and reloaded:
+    // a room stays `started` after its run, so blindly following it is what
+    // made the game "suddenly start" on a menu.
+    if (f.room && f.room.started && f.room.host !== state.me.id && f.room.seed != null) {
+      const cfg = { ...(f.room.cfg || {}), seed: f.room.seed };
+      const key = runKeyOf(f.room, f.room.seed);
+      // First look: record where the room is, do not enter. A later change of
+      // this key while the lobby is open is a start we watched happen.
+      let changed = false;
+      if (state.lobbyBaseline === undefined) state.lobbyBaseline = key;
+      else if (state.lobbyBaseline !== key) { changed = true; state.lobbyBaseline = key; }
+      const follow = intentMatches(f.room, f.room.seed) ||
+        (state.screen === 'lobby' && changed && !state.starting);
+      if (follow) {
+        state.pendingRun = null;
+        followHost(cfg, f.room);
+        return;
+      }
+      state.pendingRun = { cfg, room: f.room };
+      if (state.screen === 'lobby') render();
       return;
     }
-    // Guests follow the host's start: once the room is started (the host's run
-    // exists and published its config), start our own run from that config.
-    if (f.room && f.room.started && f.room.host !== state.me.id && f.room.seed != null) {
-      followHost({ ...(f.room.cfg || {}), seed: f.room.seed }, f.room);
-      return;
+    if (f.room && !f.room.started) {
+      state.pendingRun = null;
+      if (state.screen === 'lobby') state.lobbyBaseline = null;
     }
     if (state.screen) render();
   } catch (e) {
@@ -1124,9 +1307,37 @@ globalThis.__pbCoopUI = {
   get friends() { return state.friends; },
   get screen() { return state.screen; },
   refresh: poll,
-  // Bridge -> UI: the host's `start` message (guest) and the end of any run.
-  hostStarted(cfg) { followHost(cfg); },
-  runEnded() { state.starting = false; },
+  // Bridge -> UI: the host's `start`/`go` message. Only launch when this tab is
+  // watching the lobby (or it was in that run and reloaded); otherwise offer it.
+  hostStarted(cfg) {
+    if (!cfg || !Number.isFinite(cfg.seed)) return;
+    const room = state.room;
+    // The bridge also sees the host's `start` broadcast when its run actually
+    // comes up — which can be several seconds AFTER the room was marked started.
+    // If we already saw that start while not watching the lobby (pendingRun),
+    // this late message is the same start, not a new one: keep offering it.
+    const pendingSame = !!(state.pendingRun && state.pendingRun.cfg &&
+      state.pendingRun.cfg.seed === cfg.seed);
+    if (intentMatches(room, cfg.seed) ||
+        (state.screen === 'lobby' && !pendingSame)) {
+      state.lobbyBaseline = runKeyOf(room, cfg.seed);
+      state.pendingRun = null;
+      followHost(cfg, room);
+      return;
+    }
+    const duplicate = pendingSame;
+    state.pendingRun = { cfg, room };
+    if (!duplicate) toast('The host started a run. Open the room to join.', false);
+  },
+  runEnded() {
+    state.starting = false;
+    forgetFollow();
+    // Do not let the still-`started` room launch the finished run again.
+    if (state.room && state.room.started) {
+      state.lobbyBaseline = runKeyOf(state.room, state.room.seed);
+      state.finishedRunKey = runKeyOf(state.room, state.room.seed);
+    }
+  },
 };
 
 sessionChanged();

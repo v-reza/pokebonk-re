@@ -90,7 +90,16 @@ picked; it publishes a seed + region/difficulty to the room (and to every peer
 as `go`), and **everyone — host included — starts at the same moment** through
 the app's own `startRun`, with that exact config (`__pbRunOverride`), so every
 world is identical. A player who reloads mid-run follows the room back in and is
-taken back by the host (new session id → fresh enemy snapshot).
+taken back by the host (new session id → fresh enemy snapshot); that intent
+lasts 30 minutes and is cleared when the run ends. A tab that was **not** in the
+run — it was on the friends screen or elsewhere when the host pressed Start —
+is not dragged in: the room shows *Rejoin run* instead.
+
+The host opens the WebRTC peers for the whole room while everyone is still in the
+lobby, so the direct channel is normally up before the first frame. If it cannot
+be established, the game keeps running through the database relay (3 frames/s)
+and the host keeps redialing the direct channel in the background, switching back
+without interrupting the run.
 
 In the run (host-authoritative, as in PokéSurvivor):
 
@@ -231,7 +240,9 @@ in-memory implementation (`firebase/backend.mjs` → `MemoryDB`).
 | active run + checkpoints | RTDB `runs/{runId}` — config, seed, `cps[]` |
 | run history | `saves/{uid}.profile.runs` (same shape as JSON store, capped at 50) |
 | presence | Firestore `pres/{uid}` — 30-min heartbeat |
-| rooms / signaling | RTDB `rooms/{id}/{host, open, at, m, q}` |
+| friends / invites | Firestore `social_edges`, `social_invites` |
+| lobby rooms | Firestore `social_rooms/{code}` — `m` keyed by uid, plus `uids[]` so `myRoom` works on any API instance |
+| co-op signaling | RTDB `rooms/{id}/{host, open, at, m, q}` |
 
 Auth detail: the client sends `{name, password}` with no email, so the backend synthesises
 an email (`<name>-<rand>@pokebonk.local`) for the Firebase Email+Password user and still

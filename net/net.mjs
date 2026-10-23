@@ -20,7 +20,12 @@
 
 import { version as CODEC_VERSION, encode, decode, size } from './codec.mjs';
 
-const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+const ICE = [{ urls: [
+  'stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302',
+  // A second provider: Google's STUN is unreachable on some networks, and a
+  // failed reflexive candidate sends the whole match to the 3 Hz relay.
+  'stun:stun.cloudflare.com:3478',
+] }];
 const TURN_API = 'https://ice.pokesurvivor.com/v1/ice';
 // No TURN. Play over STUN and, if it fails, through the database.
 const TURN_ON = false;
@@ -30,6 +35,10 @@ const TURN_ON = false;
 const DIRECT_TIMEOUT = 9000, TURN_TIMEOUT = 15000;   // ms to get a channel
 // Relay through the Realtime Database: ON here (deliverable requires ALLOW_RELAY).
 const ALLOW_RELAY = true, RETRY_MS = 15000;
+// While the game continues on the database relay, keep trying to get the direct
+// channel: a relayed session is 3 frames/s, and the first ICE attempt can lose to
+// a slow access point, a NAT rebind or a late candidate. Only the host dials.
+const DIRECT_RETRY_MS = 15000, DIRECT_RETRY_FAST_MS = 4000;
 
 export const CONSTANTS = { ICE, TURN_API, TURN_ON, DIRECT_TIMEOUT, TURN_TIMEOUT, ALLOW_RELAY, RETRY_MS };
 
@@ -192,7 +201,10 @@ function wireChannel(u, p, dc) {
   p.binaryVersion = 0;
   dc.binaryType = 'arraybuffer';
   dc.onopen = () => {
-    clearTimeout(p.timer); p.mode = 'direct';
+    clearTimeout(p.timer);
+    clearTimeout(p.retry);
+    p.retry = 0;
+    p.mode = 'direct';
     if (p.pc) checkTurn(u, p);
     // Announce we understand binary (older versions ignore it); until the other end
     // sends its own, we speak JSON.
@@ -223,8 +235,22 @@ function wireChannel(u, p, dc) {
 
 function useRelay(u) {
   const p = peers.get(u);
-  if (!p || p.mode === 'direct' || p.mode === 'closed' || p.mode === 'failed') return;
-  if (ALLOW_RELAY) { p.mode = 'relay'; emitPeer(u); return; }
+  if (!p || p.mode === 'closed' || p.mode === 'failed') return;
+  if (p.mode === 'relay') { retryDirect(u, p); return; }
+  const wasDirect = p.mode === 'direct';
+  if (wasDirect) {
+    // The direct channel died mid-session. Kill only the WebRTC side: the peer
+    // entry (and the database relay) keep the game running while we redial.
+    p.dc = null;
+    try { if (p.pc) p.pc.close(); } catch (e) { /* nothing */ }
+    p.pc = null;
+  }
+  if (ALLOW_RELAY) {
+    p.mode = 'relay';
+    emitPeer(u);
+    retryDirect(u, p, wasDirect ? DIRECT_RETRY_FAST_MS : DIRECT_RETRY_MS);
+    return;
+  }
   // No relay: cannot play with that person for now. The host retries.
   clearTimeout(p.timer);
   p.mode = 'failed';
@@ -234,6 +260,22 @@ function useRelay(u) {
   const withTurn = !p.turn && !needTurn.has(u) && !!turnUser();
   if (withTurn) needTurn.add(u);
   p.timer = setTimeout(() => { if (peers.get(u) === p && p.mode === 'failed' && roomId) { drop(u, true); connect(u); } }, withTurn ? 0 : RETRY_MS);
+}
+
+/**
+ * Host only, while the relay keeps the game alive: drop the failed WebRTC peer
+ * and dial again. `drop(u, true)` is silent, so the lobby does not flash through
+ * "connecting"; the relay carries the frames in between.
+ */
+function retryDirect(u, p, delay = DIRECT_RETRY_MS) {
+  if (!isHost || !ALLOW_RELAY || !roomId || p.mode === 'direct') return;
+  if (p.retry) return;
+  p.retry = setTimeout(() => {
+    p.retry = 0;
+    if (peers.get(u) !== p || !roomId || p.mode === 'direct') return;
+    drop(u, true);
+    connect(u);
+  }, delay);
 }
 
 /** Host: open a connection to a guest. */
@@ -295,6 +337,8 @@ function drop(u, silent) {
   const p = peers.get(u);
   if (!p) return;
   clearTimeout(p.timer);
+  clearTimeout(p.retry);
+  p.retry = 0;
   p.mode = 'closed';
   try { if (p.dc) p.dc.close(); } catch (e) { /* nothing */ }
   try { if (p.pc) p.pc.close(); } catch (e) { /* nothing */ }
