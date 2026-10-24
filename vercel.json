@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node tools/prepatch.mjs dist",
+  "buildCommand": "node tools/prepatch.mjs dist --write",
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
