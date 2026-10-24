@@ -17,7 +17,7 @@
 //
 // Shared patch tables and assertions are imported from ./bundle-patches.mjs
 // and ./bundle-patches-0.8.29.mjs.
-import { cp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { cp, readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,7 +164,8 @@ export async function main(argv = process.argv.slice(2)) {
     const netSrc = path.join(ROOT, 'net');
     const netOut = path.join(OUT, 'net');
     await mkdir(netOut, { recursive: true });
-    const clientNetFiles = ['net.mjs', 'coop.mjs', 'codec.mjs', 'signaling-firebase.mjs', 'signaling-local.mjs'];
+    // every module the page can import: the list is derived, not hand-maintained
+    const clientNetFiles = (await readdir(netSrc)).filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs'));
     for (const f of clientNetFiles) {
       const srcFile = path.join(netSrc, f);
       if (existsSync(srcFile)) {
@@ -206,11 +207,11 @@ export async function main(argv = process.argv.slice(2)) {
   const outBundle = path.join(OUT, BUNDLE_REL);
   const src = await readFile(outBundle, 'utf8');
   let patched;
-  if (build === 'mvl14oup' || gameFile.includes('mvl14oup')) {
+  if (!isLegacy) {
     const redirected = applyPatches(src, REDIRECT_PATCHES, BUNDLE_REL);
     const res = applyCoopPatches(redirected);
     patched = res.source;
-    console.log(`[prepatch] applied redirects + ${res.applied.length} 0.8.29 co-op hooks`);
+    console.log(`[prepatch] applied redirects + ${res.applied.length} co-op hooks (${build})`);
   } else {
     assertMirrorHooks(src);
     patched = applyPatches(src, BUNDLE_PATCHES, BUNDLE_REL);
@@ -220,6 +221,14 @@ export async function main(argv = process.argv.slice(2)) {
 
   await writeFile(outBundle, patched);
   touched.push(outBundle);
+  if (!patched.includes('__pbCoop')) {
+    console.error('[prepatch] FATAL: patched bundle does not contain __pbCoop');
+    process.exit(1);
+  }
+  if (patched.includes('https://api.pokebonk.com')) {
+    console.error('[prepatch] FATAL: patched bundle still points at api.pokebonk.com');
+    process.exit(1);
+  }
   console.log(`[prepatch] successfully patched ${BUNDLE_REL}`);
   console.log(`  size: ${beforeLen} -> ${afterLen} bytes (delta: ${afterLen - beforeLen >= 0 ? '+' : ''}${afterLen - beforeLen})`);
   console.log(`[prepatch] Touched / wrote ${touched.length} files:`);
