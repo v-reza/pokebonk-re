@@ -54,6 +54,13 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
   let cardWaiting = false;
   let waitingNames = [];
 
+  // One indirection for every outbound message so the transport can be swapped
+  // at runtime (mesh -> room-signal relay) without rebuilding the session.
+  const transportHolder = { send: null };
+  const sendFn = (ev, to) => {
+    if (transportHolder.send) transportHolder.send(ev, to);
+  };
+
   const api = {
     /** True while a session owns level-ups and this client is not the host. */
     isGuest() {
@@ -91,13 +98,17 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
      * messages and `send(hostUid, …)` for guest picks.
      */
     attachSession({ host, me, members = [], send = null, net = null, nameOf = null }) {
-      const publish = send || ((ev, to) => {
+      transportHolder.send = send || null;
+      const publish = (ev, to) => sendFn(ev, to);
+      const legacyPublish = send || ((ev, to) => {
         if (!net) return;
         // `'host'` is the barrier's sentinel; net.mjs addresses the host by uid.
         if (to === 'host') net.toHost(ev);
         else if (to) net.send(to, ev);
         else net.broadcast(ev);
       });
+      if (!send) transportHolder.send = legacyPublish;
+      void legacyPublish;
       barrier = new LevelBarrier({
         host,
         me,
@@ -138,6 +149,7 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
       pickups = new PickupSync({
         host: barrier.host,
         send: (ev, to) => barrier.send(ev, to),
+        send: (ev, to) => sendFn(ev, to),
         world: barrier.host ? storeWorld(store) : ghostWorld(store, kinds),
         gold: () => run?.gold ?? 0,
         onGold: (total) => {
@@ -202,6 +214,16 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
         roundedDmg,
         color || '#ffffff',
       ]);
+    },
+
+    /** Swap the outbound transport (mesh -> room-signal relay). */
+    useTransport(fn) {
+      if (typeof fn !== 'function') return api;
+      transportHolder.send = fn;
+      barrier?.setSend?.(sendFn);
+      pickups?.setSend?.(sendFn);
+      shots?.setSend?.(sendFn);
+      return api;
     },
 
     /** Detach (and clear) the session. */

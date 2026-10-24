@@ -29,6 +29,14 @@
 import { json, body } from './shared.mjs';
 
 export const COOP_MAX_MEMBERS = 4;
+
+// The 0.8.29 client validates the code as /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}$/:
+// ambiguous glyphs (I, L, O, 0, 1) are excluded, so we must never emit them.
+export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const CODE_LENGTH = 4;
+
+const randomCode = () =>
+  Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
 const ROOM_TTL_MS = 45 * 60 * 1000;   // idle rooms are collected lazily
 
 const nowMs = () => Date.now();
@@ -127,8 +135,8 @@ export function coopRoutes(api) {
     // ("El código tiene 4 letras o números"), and the join widget has 4 tiles.
     let code = '';
     for (let i = 0; i < 20 && !code; i++) {
-      const candidate = Math.random().toString(36).slice(2, 6).toUpperCase();
-      if (candidate.length === 4 && !(await api.store.room(candidate))) code = candidate;
+      const candidate = randomCode();
+      if (!(await api.store.room(candidate))) code = candidate;
     }
     if (!code) return json(res, 503, { error: 'Could not allocate a room code.' });
     const room = {

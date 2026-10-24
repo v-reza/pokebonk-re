@@ -72,6 +72,11 @@ export class PickupSync {
     this.lastGold = -1;
   }
 
+  /** Swap the transport at runtime (mesh -> room-signal relay). */
+  setSend(fn) {
+    if (typeof fn === 'function') this.send = fn;
+  }
+
   /** Host: periodic snapshot + gold. Guest: ignores (the host is authoritative). */
   tick(dt) {
     if (!this.host) return;

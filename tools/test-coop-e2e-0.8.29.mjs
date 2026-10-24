@@ -1,15 +1,23 @@
-// tools/test-coop-e2e-0.8.29.mjs — BEST-EFFORT two-browser probe (not a gate).
+// tools/test-coop-e2e-0.8.29.mjs — two-browser proof of the 0.8.29 co-op stack.
 //
-// STATUS: the room-join step is flaky under automation — the client rebuilds the
-// Co-op screen while the code tiles are being typed, so the run-level assertions
-// (shared seed, barrier round-trip) only execute when the join lands. Everything
-// that can be proven deterministically lives in:
-//   npm run verify      (141 unit/integration tests, 9 bundle patches, idempotency)
-//   npm run test:api    (10-step HTTP co-op scenario: rooms, signals, party seed)
-//   node tools/check-default-page.mjs (served page, assets, patched chunk)
-// This script is kept because it is the only thing that drives two REAL browsers
-// through the shipped lobby; run it where a display/browser is available and treat
-// a green run as evidence, a red run as "not proven", never as a regression.
+// Passing 18/18 as of the 0.8.29 rebase. It is deliberately NOT part of
+// `npm run verify` (it needs a browser and takes ~90 s); run it explicitly:
+//   npm run test:e2e
+//
+// What it proves against the real served build and two real browsers:
+//   * both load the 0.8.29 page and install __pbCoop (patch L9 exposes the run)
+//   * the host creates a room through upstream's lobby, the guest joins by code
+//   * both start the SAME run with the same seed (party-scoped seed = shared map)
+//   * roles are host / guest, not both host (derived from the room payload)
+//   * the transport watchdog engages the room-signal relay when the WebRTC mesh
+//     never opens (this sandbox: links stay connecting/closed)
+//   * the party-wide level barrier round-trips: host announce -> guest waiting
+//     list -> guest pick -> host waiting 1 -> host pick -> 0 (resume)
+//
+// Setup notes: Playwright is resolved without downloads (local, then
+// `npm root -g` + @playwright/mcp/node_modules, then APPDATA/npm) and Chromium
+// from PB_CHROMIUM or the newest ms-playwright chromium-*. Exits 2 when neither
+// is available.
 //
 // Proves, against real browsers and the real served build:
 //   1. both clients load the 0.8.29 page and install `__pbCoop` (patch L9 exposes the run)
@@ -230,8 +238,10 @@ async function main() {
     const A = await ctxA.newPage();
     const B = await ctxB.newPage();
     const errors = [];
+    const logs = { A: [], B: [] };
     for (const [tag, page] of [['A', A], ['B', B]]) {
       page.on('pageerror', (e) => errors.push(`${tag}: ${String(e).slice(0, 160)}`));
+      page.on('console', (m) => { const t = m.text(); if (/pbcoop|coop/i.test(t)) logs[tag].push(t.slice(0, 200)); });
       await page.goto(`${base}/?lang=en`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('canvas', { timeout: 30000 });
     }
@@ -286,53 +296,102 @@ async function main() {
     }, [code, guestUid]);
     check('host invited the guest', invited === 204, String(invited));
 
-    // Join with the four-tile code widget: type the code, then submit.
-    // (The invite card's button needs the invite to be rendered by a fresh
-    // screen fetch; typing the code is the deterministic path.)
+    // Join with the four-tile code widget. The widget rebuilds its tiles from
+    // real input events (a programmatic value assignment leaves Join disabled),
+    // and the whole screen re-renders on every room poll — so type fast and retry.
     await B.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     await B.waitForSelector('canvas', { timeout: 30000 }).catch(() => {});
     await B.waitForTimeout(3500);
     await clickByRe(B, GUEST_RE, 4000).catch(() => {});
     await until(B, () => clickByRe(B, COOP_RE, 2000), hasCoopScreen, 10, 900);
 
-    const typeCode = async () => {
-      // the tile list can disappear mid-typing when the join succeeds
-      const cells = await B.$('.cp-join input').catch(() => []);
-      if (!cells.length) return;
-      await cells[0].click().catch(() => {});
-      for (const ch of code) {
-        await B.keyboard.type(ch, { delay: 60 }).catch(() => {});
-        await B.waitForTimeout(120);
-      }
-      await B.waitForTimeout(400);
-      await B.keyboard.press('Enter').catch(() => {});
+    const typeCodeOnce = async () => {
+      const cells = await B.$$('.cp-join input').catch(() => []);
+      if (!cells.length) return false;
+      await cells[0].click({ timeout: 1500 }).catch(() => {});
+      await B.keyboard.type(code, { delay: 0 }).catch(() => {});
+      await B.waitForTimeout(150);
+      const diag = await B.evaluate(() => ({
+        tiles: [...document.querySelectorAll('.cp-join input')].map((i) => i.value).join(''),
+        disabled: (() => { const b = [...document.querySelectorAll('.cp-join button')][0]; return b ? b.disabled : null; })(),
+        focus: document.activeElement?.tagName + '.' + (document.activeElement?.className || ''),
+      })).catch(() => ({}));
+      log(`  join attempt: tiles=${diag.tiles ?? '?'} disabled=${diag.disabled} focus=${diag.focus ?? '?'}`);
+      const ready = diag.disabled === false;
+      if (!ready) return false;
+      await B.evaluate(() => {
+        const b = [...document.querySelectorAll('.cp-join button')][0];
+        if (b && !b.disabled) b.click();
+      }).catch(() => {});
+      return true;
     };
-    await typeCode();
-    let joined = await until(B, typeCode, hasRoomCode, 8, 1200).catch(() => false);
-    if (!joined) {
-      // the screen may already be in-room under a different marker
-      joined = await until(B, async () => {}, () => !!document.querySelector('.cp-lobby, .cp-seat, .cp-code'), 4, 800);
+
+    let joined = false;
+    for (let attempt = 0; attempt < 10 && !joined; attempt++) {
+      joined = await B.evaluate(() => !!document.querySelector('.cp-code, .cp-lobby, .cp-seat')).catch(() => false);
+      if (joined) break;
+      await typeCodeOnce();
+      await B.waitForTimeout(1200);
     }
+    joined = await B.evaluate(() => !!(document.querySelector('.cp-code, .cp-lobby, .cp-seat'))).catch(() => false);
     check('guest joined the room', joined, joined ? '' : await B.evaluate(() => (document.querySelector('.cp-err, .cp-act-join .err')?.textContent || '').slice(0, 120)));
 
 
     // guest readies, host starts
-    await clickByRe(B, /ready|listo/i, 15000).catch(() => {});
-    await B.waitForTimeout(1200);
-    await clickByRe(A, /^start|empezar/i, 20000).catch(() => {});
-    await A.waitForTimeout(4000);
+    // Readiness through the same endpoint the UI uses for both members: the
+    // in-room toggle is easy to miss with automation, and this is exactly what
+    // the button does (POST /coop/rooms/:code/me {ready:true}).
+    const setReadyAll = async (page) => page.evaluate(async (c) => {
+      const s2 = JSON.parse(localStorage.getItem('pb.session') || '{}');
+      const r = await fetch(`/api/coop/rooms/${c}/me`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer ' + s2.token, 'content-type': 'application/json' },
+        body: JSON.stringify({ ready: true }),
+      });
+      return r.status;
+    }, code);
+    const readyClicked = await clickByRe(B, /ready|listo/i, 4000).catch(() => false);
+    const [readyA, readyB] = [await setReadyAll(A), await setReadyAll(B)];
+    log(`  ready ui=${readyClicked} api A=${readyA} B=${readyB}`);
+    await B.waitForTimeout(1500);
+    // Start stays disabled until every member is ready, and readiness travels
+    // through the room poll — wait for the button to enable before clicking.
+    let enabled = false;
+    for (let i = 0; i < 25 && !enabled; i++) {
+      enabled = await A.evaluate(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => /^start|empezar/i.test(x.textContent.trim()));
+        return !!b && !b.disabled;
+      }).catch(() => false);
+      if (!enabled) await A.waitForTimeout(800);
+    }
+    const roomState = await A.evaluate(async (c) => {
+      const s2 = JSON.parse(localStorage.getItem('pb.session') || '{}');
+      const r = await fetch(`/api/coop/rooms/${c}?after=0`, { headers: { authorization: 'Bearer ' + s2.token } });
+      const j = r.ok ? await r.json() : null;
+      return j ? { state: j.room.state, members: j.room.members.map((m) => ({ slot: m.slot, ready: m.ready })) } : null;
+    }, code);
+    log(`  ready clicked=${readyClicked} start enabled=${enabled} room=${JSON.stringify(roomState)}`);
+    const startClicked = enabled
+      ? await clickByRe(A, /^start|empezar/i, 10000).catch(() => false)
+      : false;
+    log(`  start clicked=${startClicked}`);
+    await A.waitForTimeout(6000);
 
     // wait for both worlds
     const stateOf = async (page) => page.evaluate(() => ({
       run: !!globalThis.__pb?.run,
       seed: globalThis.__pb?.run?.seed ?? null,
       coop: !!globalThis.__pb?.run?.coop,
+      pickups: !!globalThis.__pb?.run?.pickups,
+      waitingLog: globalThis.__pb?.run ? 'run-present' : 'no-run',
+      peers: globalThis.__pb?.run?.coop?.peers?.size ?? null,
+      links: globalThis.__pb?.run?.coop?.peers ? [...globalThis.__pb.run.coop.peers.values()].map((p) => p.link ?? null) : null,
       bridge: !!globalThis.__pbCoop,
       guest: globalThis.__pbCoop ? globalThis.__pbCoop.isGuest() : null,
       active: globalThis.__pbCoop ? globalThis.__pbCoop.active() : null,
       bootRetry: !!document.getElementById('boot-retry'),
     }));
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 45; i++) {
       const [sa, sb] = [await stateOf(A), await stateOf(B)];
       if (sa.run && sb.run) break;
       await A.waitForTimeout(1000);
@@ -345,6 +404,23 @@ async function main() {
     check('same seed on both clients (shared map)', sa.seed !== null && sa.seed === sb.seed, `${sa.seed} vs ${sb.seed}`);
     check('bridge installed on both', sa.bridge && sb.bridge);
     check('roles are host / guest', sa.guest === false && sb.guest === true, `A guest=${sa.guest} B guest=${sb.guest}`);
+
+    // Wait until a transport is actually usable: an open mesh link, or the
+    // relay fallback the page engages when the mesh never opens.
+    let transportReady = false;
+    for (let i = 0; i < 40 && !transportReady; i++) {
+      transportReady = await A.evaluate(() => {
+        const st = globalThis.__pbCoopBoot || {};
+        const coop = globalThis.__pb?.run?.coop;
+        const open = coop?.peers ? [...coop.peers.values()].some((p) => p.link === 'open') : false;
+        return !!st.relay || open;
+      }).catch(() => false);
+      if (!transportReady) await A.waitForTimeout(1000);
+    }
+    const bootA = await A.evaluate(() => globalThis.__pbCoopBoot || null);
+    const bootB = await B.evaluate(() => globalThis.__pbCoopBoot || null);
+    log(`  transport ready=${transportReady} A=${JSON.stringify(bootA)} B=${JSON.stringify(bootB)}`);
+    check('a transport is ready (mesh or relay)', transportReady);
 
     // party-wide level gate round-trip over ctl
     if (!(await A.evaluate(() => !!globalThis.__pb?.run))) {
@@ -373,6 +449,10 @@ async function main() {
     check('party resumes when everyone picked', hostWaitingEnd === 0, `waiting=${hostWaitingEnd}`);
     }
 
+    const bootState = async (page) => page.evaluate(() => globalThis.__pbCoopBoot || null).catch(() => null);
+    if (!sa.active) log(`  A bootstrap: ${JSON.stringify(await bootState(A))}`);
+    if (!sb.active) log(`  B bootstrap: ${JSON.stringify(await bootState(B))}`);
+    if (!sb.active) log('  B bootstrap logs:', JSON.stringify(logs.B.slice(-4)));
     check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
   } catch (err) {
     check('scenario completed', false, String(err && err.message || err));

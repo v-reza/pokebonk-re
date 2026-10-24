@@ -32,24 +32,34 @@ export function bootCoop(opts = {}) {
     bridge = installBridge({ target: env });
   }
 
-  // Derive host, me, members
+  // Derive host, me, members.
+  // Role comes from the ROOM PAYLOAD, not GT.isHost: a guest whose peers have not
+  // opened their ctl links yet reports isHost === true for a moment, and a bridge
+  // created in that window would own the barrier forever.
+  const roomPayload = coop.room?.room ?? null;
+  const myUid = me ?? coop.me ?? coop.room?.me ?? 'local';
+  const roomHost = roomPayload?.host ?? coop.room?.host ?? null;
   const isHost = typeof opts.host === 'boolean'
     ? opts.host
-    : (opts.host ? false : (coop.isHost ?? false));
-  const myUid = me ?? coop.me ?? coop.room?.me ?? 'local';
-  const members = opts.members ?? coop.room?.members?.map((m) => m.id) ?? (isHost ? [myUid] : []);
-  const nameResolver = nameOf ?? ((uid) => coop.room?.members?.find((m) => m.id === uid)?.name ?? uid);
+    : (typeof opts.host === 'string' ? opts.host === myUid
+      : (roomHost ? roomHost === myUid : (coop.isHost ?? false)));
+  const members = opts.members
+    ?? roomPayload?.members?.map((m) => m.id)
+    ?? coop.room?.members?.map((m) => m.id)
+    ?? (isHost ? [myUid] : []);
+  const nameResolver = nameOf ?? ((uid) => roomPayload?.members?.find((m) => m.id === uid)?.name
+    ?? coop.room?.members?.find((m) => m.id === uid)?.name ?? uid);
 
   // Derive hostId in order: explicit host string/opts.hostId -> coop.room.room.host -> coop.room.host -> coop.hostId
-  const explicitHost = (typeof opts.host === 'string' && opts.host) || opts.hostId || null;
-  const hostId = explicitHost
-    ?? coop.room?.room?.host
-    ?? coop.room?.host
-    ?? coop.hostId;
-
-  if (hostId) {
-    coop.hostId = hostId;
+  const explicitHost = (typeof opts.host === 'string' && opts.host) || opts.hostId || roomHost || null;
+  if (!isHost) {
+    const derived = explicitHost
+      || (coop.room?.room?.host ?? null)
+      || (coop.room?.host ?? null)
+      || null;
+    if (derived && !coop.hostId) coop.hostId = derived;
   }
+  const hostId = coop.hostId ?? explicitHost ?? roomHost ?? null;
 
   // 2. Build transport (with room signaling relay fallback if mesh cannot be built)
   let transport;
@@ -100,14 +110,11 @@ export function bootCoop(opts = {}) {
     });
   }
 
-  // 6. Wire receive so incoming ctl messages reach bridge.receive(ev, from)
-  const innerReceive = bridge.receive.bind(bridge);
+  // 6. Wire receive: the transport unwraps the envelope and hands the array to
+  // the bridge router. The bridge's own receive stays the router, so a swapped
+  // transport (relay) can feed the same path.
   transport.onReceive = (ev, from) => {
-    innerReceive(ev, from);
-  };
-
-  bridge.receive = (msg, from) => {
-    return transport.receive(msg, from);
+    bridge.receive(ev, from);
   };
 
   // If coop exposes an onCtl hook (e.g. fake coop in tests), wire it as well

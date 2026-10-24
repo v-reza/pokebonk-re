@@ -60,6 +60,7 @@ export class ShotSync {
   }
 
   /** Host: periodic sample + broadcast. Guest: ignores. */
+  setSend(fn) { if (typeof fn === 'function') this.send = fn; }
   tick(dt) {
     if (!this.host) return;
     this.timer += dt;

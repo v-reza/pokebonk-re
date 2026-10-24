@@ -46,7 +46,7 @@ test('create → join → payload shape with slots', async () => {
   const created = await call('POST', '/coop/rooms', { token: host.token, body: { species: 4, skin: null } });
   assert.equal(created.status, 200);
   const code = created.json.room.code;
-  assert.match(code, /^[A-Z0-9]{4}$/);
+  assert.match(code, /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}$/, 'client-valid alphabet only (no I/L/O/0/1)');
   assert.equal(created.json.room.host, host.id);
   assert.equal(created.json.room.state, 'lobby');
   assert.equal(created.json.room.members.length, 1);

@@ -22,16 +22,16 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | A12 | Party-scoped run seed (shared world under their mesh) | `/runs` handler in both backends | covered by the coop test suite |
 | A13 | ctl transport for the fork's messages: `net/coop-ctl-0.8.29.mjs` + patch `L6-ctl-receive` (forwards unknown `ctl` types to `__pbCoop.receive`) | `net/coop-ctl-0.8.29.mjs`, `tools/bundle-patches-0.8.29.mjs` | kit is now 8 patches (L1–L8), +624 B, parses true, idempotent (`L7`/`L8` covered by A16/A17); tests `net/coop-ctl-0.8.29.test.mjs` |
 | A14 | bootstrap `net/coop-boot-0.8.29.mjs` (`bootCoop`/`bootInfo`) + page wiring in `public/index.html` (`?pbcoop=1` loads `public/net/coop-page-0.8.29.mjs`; the module also auto-loads) | `net/coop-boot-0.8.29.mjs`, `public/index.html` | `net/coop-boot-0.8.29.test.mjs` |
-| A15 | Relay fallback under F1=A: `roomSignalTransport` in `net/coop-ctl-0.8.29.mjs` (posts `{kind:'pb'}` via the room signal endpoint, consumes polled signals, cursor advanced once) + `bootCoop` falls back to it when the mesh cannot be built, `bootInfo().relay` reports it | `net/coop-ctl-0.8.29.mjs`, `net/coop-boot-0.8.29.mjs` | `net/coop-ctl-0.8.29.test.mjs`, `net/coop-boot-0.8.29.test.mjs` |
+| A15 | Relay fallback under F1=A: `roomSignalTransport` (posts `{kind:'pb'}` via the room signal endpoint, cursor advanced once) + page watchdog that swaps the bridge transport when the mesh never opens, plus runtime `setSend` on barrier/pickups/shots | `net/coop-ctl-0.8.29.mjs`, `net/coop-bridge-0.8.29.mjs`, `public/net/coop-page-0.8.29.mjs` | `net/coop-ctl-0.8.29.test.mjs`, and the two-browser run (`relay: true` on both, barrier round-trip 18/18) |
 | A16 | Enemy projectiles replicated: `net/coop-shots-0.8.29.mjs` (`ShotSync`, `esn`/`esc` on ctl, host 10 Hz sample capped) + patch `L7-shot-tick` | `net/coop-shots-0.8.29.mjs`, `tools/bundle-patches-0.8.29.mjs` | `net/coop-shots-0.8.29.test.mjs` |
 | A17 | Teammate damage numbers: bridge `damageNumber()` (host-only broadcast `hn`, guests render one `ui.popup`) + patch `L8-hurt-number` | `net/coop-bridge-0.8.29.mjs`, `tools/bundle-patches-0.8.29.mjs` | bridge tests |
-| A9 | Suite: `node tools/verify-all.mjs` → 15 test files, 141 tests pass, 8/8 patches, +624 B, idempotent, API integration 10/10 | `tools/verify-all.mjs` | see §I |
+| A9 | Suite: `node tools/verify-all.mjs` → 15 test files, 141 tests pass, 9/9 patches, +689 B, idempotent, API integration 10/10; plus `npm run test:e2e` 18/18 | `tools/verify-all.mjs` | see §I |
 
 ## B. Co-op features to port (upstream has no equivalent)
 
 | # | Feature | Hook target in `mvl14oup` | Notes |
 |---|---|---|---|
-| B1 | Relay fallback | room signal endpoint (`POST /coop/rooms/:code/signal`, poll cursor); `roomSignalTransport` in `net/coop-ctl-0.8.29.mjs`, `bootCoop` fallback | ✅ implemented (A15): room signaling transport with cursor; mesh failure automatically falls back to relay |
+| B1 | Relay fallback | `roomSignalTransport` in `net/coop-ctl-0.8.29.mjs` + page watchdog (8 s without an open mesh link engages it) | ✅ implemented and **observed working in the browser**: both clients reported `relay: true` and exchanged barrier messages over room signals |
 | B2 | Shared pickups | class `sm`: collect funnels through `collect(slot)`; ghosts materialised with `spawn(kind,x,y,z,value)` | ✅ implemented (A10): hooks `L4`/`L5`; `collect(e){…}` guard verified unique |
 | B3 | Shared gold | run `addGold(n)` (host-only writer now) | ✅ implemented (A10): party gold rides the pickup snapshot + `gd`; guests render the host total |
 | B4 | Enemy projectiles | class `Xp` (SoA: `x,y,z,vx,vy,vz,life,rad,dmg,…,slot`), cull via `enemies.within(x,z,r,out)` | ✅ implemented (A16): `ShotSync` on ctl (`esn`/`esc`, host 10 Hz capped), hook `L7-shot-tick` |
@@ -52,7 +52,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | C5a | Party-scoped run seed | ✅ **implemented**: `/runs` with `party` returns the party's single seed and the room announces the same one at start. Upstream `ctl` carries no seed and room object has none; without party seed, each player generated a different map. One shared seed = identical terrain/decoration map (`new Tl(seed ^ 11259375)`). |
 | C6 | Tooling re-point: `tools/build-target.mjs` with `PB_BUILD/PB_VERSION/PB_ENTRY/PB_GAME/PB_INDEX` overrides + `LEGACY` | ✅ **implemented**: `tools/pull.mjs`, `tools/probe.mjs`, `tools/mirror.mjs`, `tools/prepatch.mjs`, `tools/patch-index-local.mjs` updated to import resolved build target; dry-run default with `--write` support; verified by `tools/build-target.test.mjs` (7 tests). `node tools/verify-all.mjs` (npm `verify`) is the single verification entry point; `npm run test:api` runs the HTTP-level co-op scenario (`tools/test-coop-0.8.29.mjs`, 10 steps). |
 | C7 | `.coop-verify/coop-drive.mjs`, `tools/test-coop-e2e.mjs` | ⬜ pending: 0.8.27 replaced the picker with League screen + Team + Wardrobe. Playwright MCP is unmounted in this environment; runtime proof must run where a browser is available. `tools/check-default-page.mjs` and `tools/test-coop-0.8.29.mjs` cover everything that can be proven without one. |
-| C8 | Two-tab runtime proof: both clients freeze on level-up and resume together | ⬜ pending: Playwright MCP is unmounted in this environment; runtime proof must run where a browser is available. `tools/check-default-page.mjs` and `tools/test-coop-0.8.29.mjs` cover everything that can be proven without one. |
+| C8 | Two-tab runtime proof | ✅ **proven** — `npm run test:e2e` passes 18/18 against two real browsers: same build, room create + join, identical party seed, host/guest roles, relay fallback engaged (mesh links never open in this sandbox), barrier round-trip (announce → guest waiting list → guest pick → host waiting 1 → host pick → 0). Not part of `npm run verify` (needs a browser, ~90 s) |
 
 ## D. Free with the swap (no work, no patch)
 
@@ -87,7 +87,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 - `clans` Firestore queries (`nameLower ==`, `memberIds array-contains`) are unexercised — no SDK in this environment; MemoryDB and the JSON store are the tested paths.
 - `data/store.json` gains a `clans` key on first write (additive; old files still load).
 - The patcher fails closed (missing → refuse, duplicate → refuse), so a stale anchor list cannot silently half-patch.
-- Co-op behaviour on the new base is unit-tested only; C8 is the gate.
+- Co-op behaviour is unit-tested **and** browser-proven (C8). The browser run also caught three real bugs that unit tests missed: 5-character room codes (client requires 4 from `[ABCDEFGHJKMNPQRSTUVWXYZ2-9]`), roles derived from `GT.isHost` flickering to host on both peers, and the barrier never clearing its waiting list on release.
 - ctl message types we invent (`{'t':'pb'}`) are dropped by any future upstream build that stops falling through the switch default; the `L6` patch anchor must be re-verified on every build bump.
 - the legacy 0.8.13 page is still served at `public/index-0.8.13.html` for reference/tests; it must not be linked from the default page.
 
@@ -132,7 +132,7 @@ PB_UPSTREAM_BUNDLE=<path to main-DEBvJLhQ-mvl14oup.js> \
 node tools/apply-bundle-patches.mjs --in <app.js> --out <app.patched.js>
 
 # two-browser runtime proof (needs Playwright + a Chromium; exits 2 when unavailable)
-npm run test:e2e
+npm run test:e2e   # 18/18 expected
 
 # legacy 0.8.13 smoke (refuses to run unless the page is mvilprw2)
 npm run test:e2e:legacy

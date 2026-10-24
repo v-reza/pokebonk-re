@@ -43,6 +43,11 @@ export class LevelBarrier {
     this.attachMembers(opts.members || []);
   }
 
+  /** Swap the transport at runtime (e.g. mesh -> room-signal relay). */
+  setSend(fn) {
+    if (typeof fn === 'function') this.send = fn;
+  }
+
   /** Host: refresh the member list (join/leave). */
   attachMembers(members) {
     if (!this.host) return;
@@ -126,6 +131,10 @@ export class LevelBarrier {
     }
     this.owed.clear();
     this.open = false;
+    // clear the HUD first, then release: otherwise every bar keeps the last
+    // "waiting for …" names until the next level-up.
+    this.send(['lw', []]);
+    this.onWaiting([]);
     this.send(['lr']);
     this.onResume();
   }
