@@ -232,16 +232,31 @@ export async function main(argv = process.argv.slice(2)) {
   touched.push(outPatched);
 
   const repoint = (text) => (patchedName === gameFile ? text : text.split(gameFile).join(patchedName));
+
+  // The entry chunk is cached under upstream's name as well, so it gets its own
+  // content hash too and index.html (which revalidates) points at that.
+  let entryName = entryFile;
   const entryOut = path.join(OUT, 'assets', entryFile);
   if (existsSync(entryOut)) {
     const entrySrc = await readFile(entryOut, 'utf8');
-    const entryNext = repoint(entrySrc);
-    if (entryNext !== entrySrc) { await writeFile(entryOut, entryNext); touched.push(entryOut); }
+    let entryNext = repoint(entrySrc);
+    entryName = entryFile.replace(/\.js$/, `-pb${crypto.createHash('sha256').update(entryNext).digest('hex').slice(0, 8)}.js`);
+    if (entryName !== entryFile) {
+      await writeFile(path.join(OUT, 'assets', entryName), entryNext);
+      touched.push(path.join(OUT, 'assets', entryName));
+      await rm(entryOut, { force: true });
+    } else {
+      await writeFile(entryOut, entryNext);
+    }
+    touched.push(path.join(OUT, 'assets', entryName));
   }
+
   if (existsSync(outIndex)) {
-    const html = await readFile(outIndex, 'utf8');
-    const next = repoint(html);
-    if (next !== html) { await writeFile(outIndex, next); touched.push(outIndex); }
+    let html = await readFile(outIndex, 'utf8');
+    html = repoint(html);
+    if (entryName !== entryFile) html = html.split(entryFile).join(entryName);
+    await writeFile(outIndex, html);
+    touched.push(outIndex);
   }
   // never leave the unpatched bytes reachable under upstream's own name
   if (patchedName !== gameFile && existsSync(outBundle)) await rm(outBundle, { force: true });

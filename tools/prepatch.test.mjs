@@ -44,14 +44,21 @@ test('prepatch ships a patched client with every net module', async () => {
     for (const m of srcModules) assert.ok(shipped.has(m), `dist/net is missing ${m}`);
 
     // the page must reference the current entry chunk and the co-op bootstrap
+    // both chunks are republished under their own content hash, and index.html
+    // (which revalidates) points at the hashed entry
+    const entryName = assets.find((f) => f.startsWith(ENTRY.replace(/\.js$/, '-pb')) && f.endsWith('.js'));
+    assert.ok(entryName, 'entry chunk must be published under a -pb<hash> name');
+
     const html = readFileSync(path.join(out, 'index.html'), 'utf8');
-    assert.ok(html.includes(ENTRY), `index must load the ${ENTRY} entry`);
+    assert.ok(html.includes(entryName), 'index must load the hashed entry chunk');
     assert.ok(html.includes('coop-page-0.8.29.mjs'), 'index must load the co-op bootstrap');
+    assert.ok(!html.includes(ENTRY), 'index must not point at the unpatched entry name');
     assert.ok(!html.includes(GAME), 'index must not point at the unpatched chunk name');
 
-    const shippedEntry = readFileSync(path.join(out, 'assets', ENTRY), 'utf8');
-    assert.ok(shippedEntry.includes(patchedName), 'entry chunk must import the patched chunk');
+    const shippedEntry = readFileSync(path.join(out, 'assets', entryName), 'utf8');
+    assert.ok(shippedEntry.includes(patchedName), 'entry chunk must import the patched game chunk');
     assert.ok(!shippedEntry.includes(GAME), 'entry chunk must not import the unpatched chunk name');
+    assert.ok(!existsSync(path.join(out, 'assets', ENTRY)), 'the unpatched entry must be removed');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
