@@ -274,17 +274,16 @@ async function main() {
       throw new Error('host never entered the room view');
     }
     const createRes = await createResponse;
-    const code = createRes ? (await createRes.json().catch(() => null))?.room?.code ?? null : null;
+    const apiCode = createRes ? (await createRes.json().catch(() => null))?.room?.code ?? null : null;
+    // the room UI prints the code it is actually using; prefer that over the
+    // response body so a re-created room can never leave us with a stale code
+    const uiCode = await A.evaluate(() => {
+      const m = document.body.innerText.match(/Room\s+([A-Z0-9]{4})\b/);
+      return m ? m[1] : null;
+    });
+    const code = uiCode || apiCode;
     check('host created a room', !!code && /^[A-Z0-9]{4}$/.test(code), String(code));
 
-    // guest joins by code
-    const onCoopB = await B.evaluate(hasCoopScreen);
-    check('guest reached the Co-op screen', onCoopB);
-    if (!onCoopB) await dump(B, 'B coop screen');
-
-    // Joining by invite is the supported one-click path: the host invites the
-    // guest by uid, the guest's Co-op screen lists the room, and its Join button
-    // enters it. (The code-tiles widget needs five sequential keystrokes.)
     const guestUid = await B.evaluate(async () => {
       const s2 = JSON.parse(localStorage.getItem('pb.session') || '{}');
       const r = await fetch('/api/auth/me', { headers: { authorization: 'Bearer ' + s2.token } });
@@ -301,13 +300,9 @@ async function main() {
     }, [code, guestUid]);
     check('host invited the guest', invited === 204, String(invited));
 
-    // Join with the four-tile code widget. The widget rebuilds its tiles from
-    // real input events (a programmatic value assignment leaves Join disabled),
-    // and the whole screen re-renders on every room poll — so type fast and retry.
-    await B.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    await B.waitForSelector('canvas', { timeout: 30000 }).catch(() => {});
-    await B.waitForTimeout(3500);
-    await clickByRe(B, GUEST_RE, 4000).catch(() => {});
+    // Join with the four-tile widget. Verified flow (0.8.34): no reload dance,
+    // the guest just opens Co-op, types the code into the tiles and presses
+    // Enter; the client posts /coop/rooms/:code/join and enters the room.
     await until(B, () => clickByRe(B, COOP_RE, 2000), hasCoopScreen, 10, 900);
 
     const typeCodeOnce = async () => {
@@ -315,28 +310,17 @@ async function main() {
       if (!cells.length) return false;
       await cells[0].click({ timeout: 1500 }).catch(() => {});
       await B.keyboard.type(code, { delay: 0 }).catch(() => {});
-      await B.waitForTimeout(150);
-      const diag = await B.evaluate(() => ({
-        tiles: [...document.querySelectorAll('.cp-join input')].map((i) => i.value).join(''),
-        disabled: (() => { const b = [...document.querySelectorAll('.cp-join button')][0]; return b ? b.disabled : null; })(),
-        focus: document.activeElement?.tagName + '.' + (document.activeElement?.className || ''),
-      })).catch(() => ({}));
-      log(`  join attempt: tiles=${diag.tiles ?? '?'} disabled=${diag.disabled} focus=${diag.focus ?? '?'}`);
-      const ready = diag.disabled === false;
-      if (!ready) return false;
-      await B.evaluate(() => {
-        const b = [...document.querySelectorAll('.cp-join button')][0];
-        if (b && !b.disabled) b.click();
-      }).catch(() => {});
+      await B.waitForTimeout(250);
+      await B.keyboard.press('Enter').catch(() => {});
+      await B.waitForTimeout(1500);
       return true;
     };
 
     let joined = false;
-    for (let attempt = 0; attempt < 10 && !joined; attempt++) {
+    for (let attempt = 0; attempt < 6 && !joined; attempt++) {
       joined = await B.evaluate(hasRoomCode).catch(() => false);
       if (joined) break;
       await typeCodeOnce();
-      await B.waitForTimeout(1200);
     }
     joined = await B.evaluate(hasRoomCode).catch(() => false);
     check('guest joined the room', joined, joined ? '' : await B.evaluate(() => (document.querySelector('.cp-err, .cp-act-join .err')?.textContent || '').slice(0, 120)));

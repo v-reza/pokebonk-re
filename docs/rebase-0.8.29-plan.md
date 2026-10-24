@@ -18,7 +18,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | A7 | Leader succession: idle 7 days → officer active in 3 days with most points → else most-pointed member | `maintainClan()` in `firebase/clans.mjs` | 2 tests |
 | A8 | Wardrobe + Team persistence: `skins`, `team` in `PUT /profile/prefs`; profile defaults `skins/classics/team` | `firebase/shared.mjs` | 1 round-trip test |
 | A10 | Shared pickups + shared gold: host snapshot (5 Hz) with party gold, ghost materialisation on guests, collect intent + single credit, removal broadcast | `net/pickups-sync-0.8.29.mjs` | 7 module tests + 2 bridge integration tests |
-| A11 | `/coop/*` room service (F1=A): access flag, rooms, join/poll, signals, chat, me/settings, kick, invite, start, leave, invites, board | `firebase/coop.mjs` | 11 tests + live lobby in the browser |
+| A11 | `/coop/*` room service (F1=A): access, ice config, rooms create/join/poll, signals, chat, me/settings, kick, invite, start, leave, invites, standing, board | `firebase/coop.mjs` | 13 tests + live lobby and full two-browser run |
 | A12 | Party-scoped run seed (shared world under their mesh) | `/runs` handler in both backends | covered by the coop test suite |
 | A13 | ctl transport for the fork's messages: `net/coop-ctl-0.8.29.mjs` + patch `L6-ctl-receive` (forwards unknown `ctl` types to `__pbCoop.receive`) | `net/coop-ctl-0.8.29.mjs`, `tools/bundle-patches-0.8.29.mjs` | kit is now 8 patches (L1–L8), +624 B, parses true, idempotent (`L7`/`L8` covered by A16/A17); tests `net/coop-ctl-0.8.29.test.mjs` |
 | A14 | bootstrap `net/coop-boot-0.8.29.mjs` (`bootCoop`/`bootInfo`) + page wiring in `public/index.html` (`?pbcoop=1` loads `public/net/coop-page-0.8.29.mjs`; the module also auto-loads) | `net/coop-boot-0.8.29.mjs`, `public/index.html` | `net/coop-boot-0.8.29.test.mjs` |
@@ -52,7 +52,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | C5a | Party-scoped run seed | ✅ **implemented**: `/runs` with `party` returns the party's single seed and the room announces the same one at start. Upstream `ctl` carries no seed and room object has none; without party seed, each player generated a different map. One shared seed = identical terrain/decoration map (`new Tl(seed ^ 11259375)`). |
 | C6 | Tooling re-point: `tools/build-target.mjs` with `PB_BUILD/PB_VERSION/PB_ENTRY/PB_GAME/PB_INDEX` overrides + `LEGACY` | ✅ **implemented**: `tools/pull.mjs`, `tools/probe.mjs`, `tools/mirror.mjs`, `tools/prepatch.mjs`, `tools/patch-index-local.mjs` updated to import resolved build target; dry-run default with `--write` support; verified by `tools/build-target.test.mjs` (7 tests). `node tools/verify-all.mjs` (npm `verify`) is the single verification entry point; `npm run test:api` runs the HTTP-level co-op scenario (`tools/test-coop-0.8.29.mjs`, 10 steps). |
 | C7 | `.coop-verify/coop-drive.mjs`, `tools/test-coop-e2e.mjs` | ⬜ pending: 0.8.27 replaced the picker with League screen + Team + Wardrobe. Playwright MCP is unmounted in this environment; runtime proof must run where a browser is available. `tools/check-default-page.mjs` and `tools/test-coop-0.8.29.mjs` cover everything that can be proven without one. |
-| C8 | Two-tab runtime proof | ⚠️ **proven on 0.8.29 (18/18); needs re-validation on 0.8.34.** After the 0.8.30 room redesign the probe creates a room (e.g. `Room GFSJ`) but the room disappears before the second player joins, so our `POST /coop/rooms/:code/me` returns 404. Selectors/build detection were already updated; the new room lifecycle needs a focused pass |
+| C8 | Two-tab runtime proof | ✅ **validated on 0.8.34** — `npm run test:e2e` passes **17/17** against two real browsers: same build, room create → invite → join, identical party seed, host/guest roles, relay fallback engaged (mesh never opens in this sandbox), and the party barrier round-trip (announce → guest waiting list → guest pick → host waiting 1 → host pick → 0) |
 
 ## D. Free with the swap (no work, no patch)
 
@@ -85,6 +85,8 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | F3 | Old co-op UI (`public/net/coop-ui.mjs` + its index bootstrap) | delete most of it, keep the fetch/lobby helpers only if needed (standing recommendation under F1=A) | under F1=A upstream owns lobby/picker/chat/invites; replaced by upstream's lobby |
 
 ## G. Risks
+
+- 0.8.34 asks the server for ICE servers (`GET /coop/ice`) and for the room's ladder standing (`GET /coop/rooms/:code/standing`); both are served now (STUN-only by default, `COOP_ICE_SERVERS` adds TURN). A malformed ICE url makes the client throw when constructing a peer connection — the validation run caught exactly that.
 
 - `clans` Firestore queries (`nameLower ==`, `memberIds array-contains`) are unexercised — no SDK in this environment; MemoryDB and the JSON store are the tested paths.
 - `data/store.json` gains a `clans` key on first write (additive; old files still load).

@@ -35,6 +35,27 @@ export const COOP_MAX_MEMBERS = 4;
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 4;
 
+/**
+ * ICE configuration handed to the browser (0.8.34 asks for it before creating
+ * peer connections). STUN only by default; set COOP_ICE_SERVERS to a JSON array
+ * to add TURN, e.g. [{"urls":"turn:host:3478","username":"u","credential":"p"}].
+ */
+export const DEFAULT_ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
+
+export function iceServers(env = process.env) {
+  const raw = env.COOP_ICE_SERVERS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch { /* fall through to defaults */ }
+  }
+  return DEFAULT_ICE_SERVERS;
+}
+
 const randomCode = () =>
   Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
 const ROOM_TTL_MS = 45 * 60 * 1000;   // idle rooms are collected lazily
@@ -81,6 +102,7 @@ function addMember(room, acc, species, skin) {
     member: acc.profile.starter ?? 0,
     skin: skin ?? null,
     tag: acc.profile.clanTag ?? null,
+    guest: !!acc.guest,
     ready: false,
   };
   room.members.push(member);
@@ -123,14 +145,25 @@ export function coopRoutes(api) {
     json(res, 200, { show: enabled, play: enabled });
   });
 
+  route('GET', '/coop/ice', async (req, res) => {
+    const acc = await api.me(req, res);
+    if (!acc) return;
+    json(res, 200, { servers: iceServers() });
+  });
+
   route('POST', '/coop/rooms', async (req, res) => {
     const acc = await api.me(req, res);
     if (!acc) return;
     if (!enabled) return json(res, 403, { error: 'Co-op is paused.' });
     const b = (await body(req)) || {};
-    // One room per player: creating again replaces the old one.
+    // One room per player. Re-creating while already in a lobby returns that same
+    // room instead of destroying it — a double click used to invalidate the code
+    // the player had just been shown.
     const existing = await api.store.roomOf(acc.id);
-    if (existing) await api.store.delRoom(existing.code);
+    if (existing) {
+      if (existing.state === 'lobby') return json(res, 200, payload(existing, acc.id));
+      await api.store.delRoom(existing.code);
+    }
     // Upstream validates the code client-side: exactly 4 letters/digits
     // ("El código tiene 4 letras o números"), and the join widget has 4 tiles.
     let code = '';
@@ -304,6 +337,22 @@ export function coopRoutes(api) {
       await api.store.saveRoom(ctx.room);
     }
     json(res, 200, payload(ctx.room, ctx.acc.id));
+  });
+
+  // Team standing for the room's map/difficulty (0.8.34 renders it in the room).
+  route('GET', '/coop/rooms/:code/standing', async (req, res, _url, params) => {
+    const ctx = await roomFor(req, res, params.code);
+    if (!ctx) return;
+    // Upstream only ranks teams where every member has a real account; guests
+    // make the team unranked, which the room UI states explicitly.
+    const ranked = ctx.room.members.every((m) => !m.guest);
+    json(res, 200, {
+      biome: ctx.room.biome,
+      tier: ctx.room.tier,
+      ranked,
+      best: null,
+      teams: 0,
+    });
   });
 
   route('GET', '/coop/invites', async (req, res) => {

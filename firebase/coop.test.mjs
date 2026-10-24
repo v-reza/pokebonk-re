@@ -224,3 +224,27 @@ test('room capacity is 4', async () => {
   const full = await call('POST', `/coop/rooms/${code}/join`, { token: fifth.token, body: { species: 9 } });
   assert.equal(full.status, 400);
 });
+
+
+test('ice config and room standing (0.8.34 endpoints)', async () => {
+  const host = await player();
+  const mate = await player();
+
+  const ice = await call('GET', '/coop/ice', { token: host.token });
+  assert.equal(ice.status, 200);
+  assert.ok(Array.isArray(ice.json.servers) && ice.json.servers.length, 'ice servers expected');
+
+  const code = (await call('POST', '/coop/rooms', { token: host.token, body: { species: 4 } })).json.room.code;
+  await call('POST', `/coop/rooms/${code}/join`, { token: mate.token, body: { species: 7 } });
+
+  const standing = await call('GET', `/coop/rooms/${code}/standing`, { token: host.token });
+  assert.equal(standing.status, 200);
+  assert.equal(typeof standing.json.biome, 'string');
+  assert.equal(typeof standing.json.tier, 'number');
+  assert.equal(standing.json.ranked, false, 'guest teams are unranked');
+  assert.equal(standing.json.best, null);
+
+  const outsider = await player();
+  const denied = await call('GET', `/coop/rooms/${code}/standing`, { token: outsider.token });
+  assert.equal(denied.status, 403, 'only members can read the room standing');
+});
