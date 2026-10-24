@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 test('default values are the new build (mvl14oup / 0.8.29)', async () => {
   const bt = await import('./build-target.mjs');
-  assert.strictEqual(bt.BUILD, 'mvl14oup');
-  assert.strictEqual(bt.VERSION, '0.8.29');
-  assert.strictEqual(bt.ENTRY, 'main-CB7jXRDe-mvl14oup.js');
-  assert.strictEqual(bt.GAME, 'main-DEBvJLhQ-mvl14oup.js');
+  assert.strictEqual(bt.BUILD, 'mvlr7rzv');
+  assert.strictEqual(bt.VERSION, '0.8.34');
+  assert.strictEqual(bt.ENTRY, 'main-CwXNXC4E-mvlr7rzv.js');
+  assert.strictEqual(bt.GAME, 'main-CPuTGAQ--mvlr7rzv.js');
   assert.strictEqual(bt.INDEX, 'index.html');
 });
 

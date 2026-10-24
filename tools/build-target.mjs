@@ -1,15 +1,15 @@
 /**
  * tools/build-target.mjs — build target configuration.
  *
- * Current target: build mvl14oup (version 0.8.29).
+ * Current target: build mvlr7rzv (version 0.8.34).
  * Legacy target: build mvilprw2 (version 0.8.13).
  */
 
 export const DEFAULT_TARGET = Object.freeze({
-  BUILD: 'mvl14oup',
-  VERSION: '0.8.29',
-  ENTRY: 'main-CB7jXRDe-mvl14oup.js',
-  GAME: 'main-DEBvJLhQ-mvl14oup.js',
+  BUILD: 'mvlr7rzv',
+  VERSION: '0.8.34',
+  ENTRY: 'main-CwXNXC4E-mvlr7rzv.js',
+  GAME: 'main-CPuTGAQ--mvlr7rzv.js',
   INDEX: 'index.html',
 });
 

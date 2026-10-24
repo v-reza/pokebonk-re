@@ -42,6 +42,7 @@ import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+const { BUILD: EXPECTED_BUILD } = await import('./build-target.mjs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[coop-e2e]', ...a);
 
@@ -146,8 +147,10 @@ const until = async (page, attempt, predicate, tries = 10, pause = 900) => {
 };
 
 const hasCreateRoom = () => [...document.querySelectorAll('button')].some((b) => /create room|crea una sala/i.test(b.textContent.trim()));
-const hasCoopScreen = () => !!document.querySelector('.cp-create, .cp-code, .cp-act-join');
-const hasRoomCode = () => !!document.querySelector('.cp-code');
+const hasCoopScreen = () => !!(document.querySelector('.cp-create, .cp-code, .cp-act-join, .cp-room, .cp-lobby')
+  || /Create room|Crea una sala/i.test(document.body.innerText));
+const hasRoomCode = () => !!(document.querySelector('.cp-code, .cp-lobby, .cp-room, .cp-seat')
+  || /Leave room|Salir de la sala/i.test(document.body.innerText));
 
 const GUEST_RE = /play as a guest|jugar como invitado/i;
 const CARD_RE = /bulbasaur|charmander|squirtle/i;
@@ -246,9 +249,10 @@ async function main() {
       await page.waitForSelector('canvas', { timeout: 30000 });
     }
 
-    check('both pages load the 0.8.29 build',
-      /mvl14oup/.test(await A.evaluate(() => document.querySelector('meta[name=pokebonk-build]')?.content || '')) &&
-      /mvl14oup/.test(await B.evaluate(() => document.querySelector('meta[name=pokebonk-build]')?.content || '')));
+    const stamp = (page) => page.evaluate(() => document.querySelector('meta[name=pokebonk-build]')?.content || '');
+    const [stampA, stampB] = [await stamp(A), await stamp(B)];
+    check('both pages load the current build',
+      stampA === EXPECTED_BUILD && stampB === EXPECTED_BUILD, `${stampA} / ${stampB}`);
 
     await enterMenu(A);
     await enterMenu(B);
@@ -264,10 +268,11 @@ async function main() {
     const created = await until(A, () => clickByRe(A, /create room|crea una sala/i, 2000), hasRoomCode, 8, 1200);
     check('host created a room', created);
     if (!created) await dump(A, 'A after create');
-    await A.waitForSelector('.cp-code', { timeout: 20000 }).catch(async (e) => {
+    const inRoomA = await until(A, async () => {}, hasRoomCode, 10, 600);
+    if (!inRoomA) {
       await dump(A, 'A after create');
-      throw e;
-    });
+      throw new Error('host never entered the room view');
+    }
     const createRes = await createResponse;
     const code = createRes ? (await createRes.json().catch(() => null))?.room?.code ?? null : null;
     check('host created a room', !!code && /^[A-Z0-9]{4}$/.test(code), String(code));
@@ -328,12 +333,12 @@ async function main() {
 
     let joined = false;
     for (let attempt = 0; attempt < 10 && !joined; attempt++) {
-      joined = await B.evaluate(() => !!document.querySelector('.cp-code, .cp-lobby, .cp-seat')).catch(() => false);
+      joined = await B.evaluate(hasRoomCode).catch(() => false);
       if (joined) break;
       await typeCodeOnce();
       await B.waitForTimeout(1200);
     }
-    joined = await B.evaluate(() => !!(document.querySelector('.cp-code, .cp-lobby, .cp-seat'))).catch(() => false);
+    joined = await B.evaluate(hasRoomCode).catch(() => false);
     check('guest joined the room', joined, joined ? '' : await B.evaluate(() => (document.querySelector('.cp-err, .cp-act-join .err')?.textContent || '').slice(0, 120)));
 
 

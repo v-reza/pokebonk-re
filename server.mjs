@@ -594,7 +594,8 @@ const BUNDLE = 'main-D5OUVqGK-mvilprw2.js';
 
 // 0.8.29 target: same game, rebuilt. Serves redirects + the five co-op hooks
 // from tools/bundle-patches-0.8.29.mjs instead of the 0.8.13 string patches.
-const NEW_BUNDLE = 'main-DEBvJLhQ-mvl14oup.js';
+const NEW_BUNDLES = ['main-CPuTGAQ--mvlr7rzv.js', 'main-DEBvJLhQ-mvl14oup.js'];
+const isNewBundle = (rel) => NEW_BUNDLES.some((b) => rel.includes(process.env.PB_NEW_BUNDLE || b));
 
 /** Patched bundle cache: file path -> Buffer. */
 const PATCHED = new Map();
@@ -642,12 +643,12 @@ async function serveStatic(req, res, pathname) {
       src = src.replace(/<script[^>]*static\.cloudflareinsights\.com[\s\S]*?<\/script>/g, '');
       if (src !== before) return sendFile(res, file, Buffer.from(src));
     }
-    if (ext === '.js' && (rel.includes('main-D5OUVqGK') || rel.includes(process.env.PB_NEW_BUNDLE || NEW_BUNDLE))) {
+    if (ext === '.js' && (rel.includes('main-D5OUVqGK') || isNewBundle(rel))) {
       buf = PATCHED.get(file);
       if (!buf) {
         const src = await readFile(file, 'utf8');
         try {
-          if (rel.includes(process.env.PB_NEW_BUNDLE || NEW_BUNDLE)) {
+          if (isNewBundle(rel)) {
             // 0.8.29: redirects first, then the co-op hooks. The old A1-A8
             // patches and the E1-E14 hook checks describe 0.8.13 symbols and
             // must not run against this build.

@@ -45,7 +45,11 @@ test('legacy index-0.8.13.html carries its co-op bridge', async () => {
   assert.match(legacyHtml, /__pbMakePuppets/);
 
   const defaultHtml = await readBody('/');
-  assert.match(defaultHtml, /main-DEBvJLhQ|mvl14oup/);
+  const { BUILD, GAME } = await import('../tools/build-target.mjs');
+  assert.ok(
+    defaultHtml.includes(BUILD) || defaultHtml.includes(GAME),
+    'default page should be the current build (' + BUILD + ')',
+  );
 });
 
 test('patched bundle is served with hooks and applied string patches', async () => {

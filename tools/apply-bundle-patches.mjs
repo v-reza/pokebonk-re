@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { join, resolve } from 'node:path';
-import { applyCoopPatches, COOP_PATCHES, UPSTREAM_BUILD } from './bundle-patches-0.8.29.mjs';
+import { applyCoopPatches, COOP_PATCHES, UPSTREAM_BUILD, UPSTREAM_BUILDS } from './bundle-patches-0.8.29.mjs';
 
 function parseArgs(argv) {
   const out = { in: null, out: null, check: false, quiet: false };
@@ -60,8 +60,9 @@ function main() {
   const source = readFileSync(inPath, 'utf8');
 
   const build = detectBuild(source);
-  if (build && build !== UPSTREAM_BUILD) {
-    console.error(`refusing: bundle build is ${build}, patch set targets ${UPSTREAM_BUILD}`);
+  const known = Array.isArray(UPSTREAM_BUILDS) ? UPSTREAM_BUILDS : [UPSTREAM_BUILD];
+  if (build && !known.includes(build)) {
+    console.error(`refusing: bundle build is ${build}, patch set targets ${known.join(' / ')}`);
     process.exit(1);
   }
 

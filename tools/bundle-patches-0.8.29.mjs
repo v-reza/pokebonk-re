@@ -12,8 +12,12 @@
 // Anchors were read from mvl14oup (main-DEBvJLhQ-mvl14oup.js) and are verified
 // unique by tools/apply-bundle-patches.mjs before anything is written.
 
-export const UPSTREAM_BUILD = 'mvl14oup';
-export const UPSTREAM_VERSION = '0.8.29';
+// Verified against both builds: mvl14oup (0.8.29) and mvlr7rzv (0.8.34).
+// Anchors are listed per patch as candidates; the applier picks the one that
+// occurs exactly once, so one table serves every build it has been checked on.
+export const UPSTREAM_BUILDS = ['mvlr7rzv', 'mvl14oup'];
+export const UPSTREAM_BUILD = UPSTREAM_BUILDS[0];
+export const UPSTREAM_VERSION = '0.8.34';
 
 const guard = (call) => `globalThis.__pbCoop&&${call}`;
 
@@ -26,10 +30,12 @@ export const COOP_PATCHES = [
       + 'lets the host announce first and lets a guest defer the card until the host says so. '
       + 'With no co-op session the bridge calls the opener immediately, so stock behaviour is '
       + 'preserved byte for byte.',
-    anchor: 'a(bb(this,t))}',
+    anchors: ['a(bb(this,t))}', 'a(Ub(this,t))}'],
     marker: guard('__pbCoop.openLevel'),
-    build: (anchor) =>
-      `globalThis.__pbCoop&&__pbCoop.openLevel?__pbCoop.openLevel(this,()=>a(bb(this,t))):${anchor}`,
+    build: (anchor) => {
+      const call = anchor.slice(0, -1); // strip the routine's closing brace
+      return `globalThis.__pbCoop&&__pbCoop.openLevel?__pbCoop.openLevel(this,()=>${call}):${anchor}`;
+    },
   },
   {
     id: 'L2-pick-confirm',
@@ -37,7 +43,10 @@ export const COOP_PATCHES = [
       'A guest must never run the shared level-up, but the host has to learn when it picked. '
       + 'The card callback ends in `finally{n()}`, the single place every confirm path '
       + '(pick, reroll, banish, skip) passes through.',
-    anchor: 'catch(e){rc(`levelup`,e)}finally{n()}}):r()};',
+    anchors: [
+      'catch(e){rc(`levelup`,e)}finally{n()}}):r()};',
+      'catch(e){oc(`levelup`,e)}finally{n()}}):r()};',
+    ],
     marker: guard('__pbCoop.localPicked&&__pbCoop.localPicked()'),
     build: (anchor) =>
       anchor.replace('finally{n()}', `finally{${guard('__pbCoop.localPicked&&__pbCoop.localPicked()')},n()}`),
@@ -49,7 +58,10 @@ export const COOP_PATCHES = [
       + 'monsters and then mirrors everyone else\'s. The fork wants ONE world: only the host spawns, '
       + 'and guests display the host\'s monsters through the existing proxy machinery. With no '
       + 'co-op session, or on the host, the director runs exactly as stock.',
-    anchor: '!this.sanctuary&&!a&&!o&&this.director.update(e)',
+    anchors: [
+      '!this.sanctuary&&!a&&!o&&this.director.update(e)',
+      '!this.sanctuary&&!s&&!l&&this.director.update(e)',
+    ],
     marker: guard('__pbCoop.skipSpawns&&__pbCoop.skipSpawns()'),
     build: (anchor) =>
       anchor.replace(
@@ -62,7 +74,7 @@ export const COOP_PATCHES = [
     why:
       'Shared pickups need a per-frame hook to drive the host snapshot cadence (5 Hz). '
       + 'Inserted right before the enemy update, which runs in every play state.',
-    anchor: ',this.enemies.update(e),this.coop?.afterEnemies()',
+    anchors: [',this.enemies.update(e),this.coop?.afterEnemies()'],
     marker: guard('__pbCoop.tick&&__pbCoop.tick(this,e)'),
     build: (anchor) =>
       `,globalThis.__pbCoop&&__pbCoop.tick&&__pbCoop.tick(this,e)${anchor}`,
@@ -73,7 +85,7 @@ export const COOP_PATCHES = [
       'Every pickup type funnels through collect(slot). A guest must not credit gold/XP '
       + 'itself for a shared pickup: the bridge asks the host, which credits once and '
       + 'broadcasts the removal. Native guest pickups (not shared) still credit locally.',
-    anchor: 'collect(e){let t=this.run,n=t.player;',
+    anchors: ['collect(e){let t=this.run,n=t.player;'],
     marker: guard('__pbCoop.pickupCollected'),
     build: (anchor) =>
       `collect(e){if(globalThis.__pbCoop&&__pbCoop.pickupCollected&&__pbCoop.pickupCollected(this.run,this,e)===false)return;`
@@ -85,7 +97,7 @@ export const COOP_PATCHES = [
       'Upstream drops ctl message types it does not recognise. Forward unknown '
       + 'messages to the bridge so party-wide level barrier and pickup sync can travel '
       + 'on the reliable ctl channel.',
-    anchor: 'case`mark`:Number.isFinite(+t.x+ +t.z)&&this.addMark(n.slot,+t.x,+t.z,n.name)}}',
+    anchors: ['case`mark`:Number.isFinite(+t.x+ +t.z)&&this.addMark(n.slot,+t.x,+t.z,n.name)}}'],
     marker: guard('__pbCoop.receive'),
     build: (anchor) =>
       anchor.replace(
@@ -108,7 +120,7 @@ export const COOP_PATCHES = [
     why:
       'Teammate damage numbers: host broadcasts damage taken by enemies so guests '
       + 'can render popups at the exact world coordinates.',
-    anchor: ':n.hp[e]-=t}',
+    anchors: [':n.hp[e]-=t}'],
     marker: guard('__pbCoop.damageNumber'),
     build: (anchor) =>
       `:n.hp[e]-=t,globalThis.__pbCoop&&__pbCoop.damageNumber&&__pbCoop.damageNumber(this.run,n.x[e],n.y[e],n.z[e],t)}`,
@@ -119,7 +131,10 @@ export const COOP_PATCHES = [
       'The co-op bootstrap (public/net/coop-page-0.8.29.mjs) needs the live run and session. '
       + 'Upstream keeps them private, so the page cannot find run.coop / run.pickups and never '
       + 'boots. Exposing the run is read-only; co-op stays inert until a session attaches.',
-    anchor: 'this.run=new nE(this.r,this.input,M,this.hud,this.meta,e)',
+    anchors: [
+      'this.run=new nE(this.r,this.input,M,this.hud,this.meta,e)',
+      'this.run=new wE(this.r,this.input,N,this.hud,this.meta,e)',
+    ],
     marker: 'globalThis.__pb=globalThis.__pb||{}',
     build: (anchor) =>
       `${anchor},globalThis.__pb=globalThis.__pb||{},globalThis.__pb.run=this.run`,
@@ -142,16 +157,21 @@ export function applyCoopPatches(source, patches = COOP_PATCHES) {
       skipped.push(patch.id);
       continue;
     }
-    const occurrences = out.split(patch.anchor).length - 1;
-    if (occurrences === 0) {
-      throw new Error(`[${patch.id}] anchor not found: ${JSON.stringify(patch.anchor)}`);
+    const candidates = patch.anchors ?? [patch.anchor];
+    let anchor = null;
+    for (const cand of candidates) {
+      const hits = out.split(cand).length - 1;
+      if (hits === 1) { anchor = cand; break; }
+      if (hits > 1) {
+        throw new Error(`[${patch.id}] anchor not unique (${hits} matches): ${JSON.stringify(cand)}`);
+      }
     }
-    if (occurrences > 1) {
+    if (!anchor) {
       throw new Error(
-        `[${patch.id}] anchor not unique (${occurrences} matches): ${JSON.stringify(patch.anchor)}`,
+        `[${patch.id}] anchor not found in this build; tried ${JSON.stringify(candidates)}`,
       );
     }
-    out = out.replace(patch.anchor, patch.build(patch.anchor));
+    out = out.replace(anchor, patch.build(anchor));
     applied.push(patch.id);
   }
 

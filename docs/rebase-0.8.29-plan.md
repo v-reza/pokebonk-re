@@ -1,6 +1,6 @@
-# Rebase `pokebonk-re` onto upstream `0.8.29` (`mvl14oup`) — plan
+# Rebase `pokebonk-re` onto upstream `0.8.34` (`mvlr7rzv`) — plan
 
-Source base: `0.8.13` (`mvilprw2`) · Target base: `0.8.29` (`mvl14oup`, 2,059,921 B)
+Source base: `0.8.13` (`mvilprw2`) · Target base: `0.8.34` (`mvlr7rzv`) · previous target `0.8.29` (`mvl14oup`) kept in `public/assets` for reference
 Companion doc: `docs/upstream-coop-protocol-diff.md` (wire protocol, redundancy matrix, patch inventory §7).
 
 Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
@@ -11,7 +11,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 |---|---|---|---|
 | A1 | Party-wide level gate: owed counters, host-only ownership, leave-release, `lu`/`lw`/`lr`/`lp` | `net/level-barrier.mjs` | 8 tests (`net/level-barrier.test.mjs`) |
 | A2 | Bridge `__pbCoop`: `openLevel`, `localPicked`, `attachSession`, `bindNet`, `receive`, `resume`, `skipSpawns`, `attachPickups`, `pickupCollected`, `tick` | `net/coop-bridge-0.8.29.mjs` | 16 tests (`net/coop-bridge-0.8.29.test.mjs`) |
-| A3 | Patch set for `mvl14oup`: `L1-open-level`, `L2-pick-confirm`, `L3-host-spawns`, `L4-pickup-tick`, `L5-pickup-collect`, `L6-ctl-receive`, `L7-shot-tick`, `L8-hurt-number` — all gated on `globalThis.__pbCoop` | `tools/bundle-patches-0.8.29.mjs` | 8 anchors unique; real chunk +624 B; `node --check` clean; re-apply byte-identical |
+| A3 | Patch set for the modern builds: `L1`–`L9`, all gated on `globalThis.__pbCoop` | `tools/bundle-patches-0.8.29.mjs` | **applies to both** `mvl14oup` (0.8.29) and `mvlr7rzv` (0.8.34) via per-patch anchor candidates; 9/9, +689 B on each, parses, idempotent |
 | A4 | One-pass applier + npm script | `tools/apply-bundle-patches.mjs`, `npm run patch:0.8.29` | 7 tests |
 | A5 | `POST /profile/actions` batched reducer; the 5 economy routes rewired to it in both backends | `firebase/shared.mjs`, `firebase/backend.mjs`, `server.mjs` | 4 tests + live HTTP |
 | A6 | Clans: create, join (open/request/requirements), status, search, guide, notice, settings, invite, uninvite, kick, role, leave, disband, rename, emblem, mute, chat, activity | `firebase/clans.mjs` + both backends | 6 tests + live HTTP |
@@ -43,7 +43,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 
 | # | Item | What breaks |
 |---|---|---|
-| C1 | Base swap: mirror `mvl14oup` over `mvilprw2` | ✅ **assets mirrored** (22 files, 0.8.29 entry `main-CB7jXRDe`, app chunk `main-DEBvJLhQ`, 8 locales, CSS, `three`), served from `public/index.html`. Boot verified in a real browser: title/canvas, guest auth against our `/api`, starter picker, then the 0.8.29 main menu (Play / Survival / Tower / Event / Tasks / Pokédex / Lab / Achievements / Ranking / Clan) with `v0.8.29` shown. `server.mjs` now patches the new chunk at serve time (log: `redirects + 8 co-op hooks`). |
+| C1 | Base swap | ✅ **assets re-mirrored to 0.8.34** (`main-CwXNXC4E` entry, `main-CPuTGAQ-` game chunk, locales, CSS, `three`); `public/index.html` is the 0.8.34 page with the co-op bootstrap re-injected, legacy kept as `index-0.8.13.html`. `server.mjs` patches both modern chunks (`main-CPuTGAQ-`, `main-DEBvJLhQ`) |
 | C2 | `tools/bundle-patches.mjs` A1–A8 + the two redirects (`api.pokebonk.com` → `/api`, Turnstile stub) | ✅ **audited** (`docs/reanchor-0.8.29-audit.md`): 22 items → 16 SUPERSEDED, 5 OBSOLETE, 1 STILL_NEEDED (`A8` sprite separation, candidate anchors listed in the audit), 0 without anchor. Redirects apply cleanly to both builds. |
 | C3 | `assertMirrorHooks()` E1–E14 | ✅ **audited** (`docs/reanchor-0.8.29-audit.md`): all 14 assertions check 0.8.13 minified symbols (`Sd`, `Xf`, `kh`, `Yg`, `DC`, `eM`) that no longer exist in `mvl14oup`; must never run against `mvl14oup` and already does not (`server.mjs` branch). |
 | C4 | Default page switch & bridge bootstrap (`public/index.html` + `net/coop-page-0.8.29.mjs`) | ✅ **done**: `public/index.html` is now the 0.8.29 page with the bridge module auto-loaded; the legacy page moved to `public/index-0.8.13.html` and the legacy test now fetches that path; `tools/check-default-page.mjs` proves `/` is 0.8.29, all its assets are 200, the legacy page still points at `main-BcyzVqXo-mvilprw2.js`, and the served 0.8.29 chunk contains the patched hooks. |
@@ -52,9 +52,11 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | C5a | Party-scoped run seed | ✅ **implemented**: `/runs` with `party` returns the party's single seed and the room announces the same one at start. Upstream `ctl` carries no seed and room object has none; without party seed, each player generated a different map. One shared seed = identical terrain/decoration map (`new Tl(seed ^ 11259375)`). |
 | C6 | Tooling re-point: `tools/build-target.mjs` with `PB_BUILD/PB_VERSION/PB_ENTRY/PB_GAME/PB_INDEX` overrides + `LEGACY` | ✅ **implemented**: `tools/pull.mjs`, `tools/probe.mjs`, `tools/mirror.mjs`, `tools/prepatch.mjs`, `tools/patch-index-local.mjs` updated to import resolved build target; dry-run default with `--write` support; verified by `tools/build-target.test.mjs` (7 tests). `node tools/verify-all.mjs` (npm `verify`) is the single verification entry point; `npm run test:api` runs the HTTP-level co-op scenario (`tools/test-coop-0.8.29.mjs`, 10 steps). |
 | C7 | `.coop-verify/coop-drive.mjs`, `tools/test-coop-e2e.mjs` | ⬜ pending: 0.8.27 replaced the picker with League screen + Team + Wardrobe. Playwright MCP is unmounted in this environment; runtime proof must run where a browser is available. `tools/check-default-page.mjs` and `tools/test-coop-0.8.29.mjs` cover everything that can be proven without one. |
-| C8 | Two-tab runtime proof | ✅ **proven** — `npm run test:e2e` passes 18/18 against two real browsers: same build, room create + join, identical party seed, host/guest roles, relay fallback engaged (mesh links never open in this sandbox), barrier round-trip (announce → guest waiting list → guest pick → host waiting 1 → host pick → 0). Not part of `npm run verify` (needs a browser, ~90 s) |
+| C8 | Two-tab runtime proof | ⚠️ **proven on 0.8.29 (18/18); needs re-validation on 0.8.34.** After the 0.8.30 room redesign the probe creates a room (e.g. `Room GFSJ`) but the room disappears before the second player joins, so our `POST /coop/rooms/:code/me` returns 404. Selectors/build detection were already updated; the new room lifecycle needs a focused pass |
 
 ## D. Free with the swap (no work, no patch)
+
+- **0.8.30–0.8.34**: co-op room redone (destination, team, large chat, ladder position for map+difficulty, invitations on the entry screen, change Pokémon from your card, bug report from the room); co-op ladder on the entry screen; **server relay when a direct P2P connection is blocked** ("no more getting stuck on «Connecting…»"); room filters maps/difficulties to what the whole team unlocked and flags teammates on an old client version; enemies chase the nearest trainer and bosses attack whoever is closest; shared portals, altars and captures; teammate HP numbers, attacks and big-map markers; smooth spectate (Space switches teammate); revive by holding E; FPS limit setting; boss status icons; level display fix (1000 no longer shown as 423); Mastery Look challenge rework; "Enemies drawn" setting; mobile stick/fullscreen fixes.
 
 - **0.8.27**: Wardrobe, 2 Mastery Looks per Pokémon + "Looks" achievement category, Classic Shiny, Team favourites (6 stars).
 - **0.8.29**: clan guide, join requirements, leader succession, clan management UI, co-op chat, co-op picker on the League screen, invite search + "invite everyone online", B/T/Q big numbers, trainer-card labels, fusion caps, Lavender Tower fixes.

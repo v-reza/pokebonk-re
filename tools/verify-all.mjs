@@ -44,7 +44,8 @@ function formatTable(rows) {
 }
 
 export async function main() {
-  const defaultBundle = path.join(ROOT, 'public', 'assets', 'main-DEBvJLhQ-mvl14oup.js');
+  const { GAME } = await import('./build-target.mjs');
+  const defaultBundle = path.join(ROOT, 'public', 'assets', GAME);
   const bundlePath = process.env.PB_UPSTREAM_BUNDLE
     ? path.resolve(process.env.PB_UPSTREAM_BUNDLE)
     : (existsSync(defaultBundle) ? path.resolve(defaultBundle) : null);
