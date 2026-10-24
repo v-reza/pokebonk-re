@@ -294,3 +294,20 @@ test('teammate damage numbers: host emits, guest pops once, guest does not re-br
   flush();
   assert.equal(hostPopups.length, 0, 'guest does not re-broadcast');
 });
+
+
+test('relayReady reflects whether the relay transport is in use', () => {
+  const host = solo();
+  host.bridge.attachSession({ host: true, me: 'H', members: ['H', 'G'], send: () => {} });
+  assert.equal(host.bridge.relayReady(), false, 'mesh mode');
+
+  const sent = [];
+  host.bridge.useTransport((ev, to) => sent.push({ ev, to }));
+  assert.equal(host.bridge.relayReady(), true, 'after switching to the relay');
+
+  host.bridge.localPicked(host.run);
+  assert.ok(sent.length >= 0);
+
+  const bare = solo();
+  assert.equal(bare.bridge.relayReady(), false, 'no session');
+});

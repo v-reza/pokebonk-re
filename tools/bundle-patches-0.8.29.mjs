@@ -126,6 +126,19 @@ export const COOP_PATCHES = [
       `:n.hp[e]-=t,globalThis.__pbCoop&&__pbCoop.damageNumber&&__pbCoop.damageNumber(this.run,n.x[e],n.y[e],n.z[e],t)}`,
   },
   {
+    id: 'L10-start-gate',
+    why:
+      '0.8.32+ disables the host Start button until every peer has a live mesh link '
+      + '(t.meshReady / unlinkedPair). On networks that block direct connections the '
+      + 'session falls back to our room-signal relay, but the gate never notices, so a '
+      + 'ready party can never start. Optional: builds without the gate are skipped.',
+    optional: true,
+    anchors: ['disabled:!!te||a,onclick:async()=>{'],
+    marker: guard('__pbCoop.relayReady'),
+    build: (anchor) =>
+      'disabled:(!!te&&!(globalThis.__pbCoop&&__pbCoop.relayReady&&__pbCoop.relayReady()))||a,onclick:async()=>{',
+  },
+  {
     id: 'L9-expose-run',
     why:
       'The co-op bootstrap (public/net/coop-page-0.8.29.mjs) needs the live run and session. '
@@ -167,6 +180,7 @@ export function applyCoopPatches(source, patches = COOP_PATCHES) {
       }
     }
     if (!anchor) {
+      if (patch.optional) { skipped.push(patch.id); continue; }
       throw new Error(
         `[${patch.id}] anchor not found in this build; tried ${JSON.stringify(candidates)}`,
       );

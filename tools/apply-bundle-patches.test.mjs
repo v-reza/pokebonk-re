@@ -25,6 +25,7 @@ const FIXTURE = [
   'tick(dt){let a=0,o=0;!this.sanctuary&&!a&&!o&&this.director.update(e),this.enemies.update(e),this.coop?.afterEnemies()}',
   'collect(e){let t=this.run,n=t.player;this.alive[e]=0,this.count--}',
   'openRun(){this.run=new nE(this.r,this.input,M,this.hud,this.meta,e),No(!0)}',
+  'startBtn(){return X(`button`,{class:`btn big red`,disabled:!!te||a,onclick:async()=>{}})}',
   'onCtl(e,t){let n=this.peers.get(e);switch(t.t){case`mark`:Number.isFinite(+t.x+ +t.z)&&this.addMark(n.slot,+t.x,+t.z,n.name)}}',
   'takeHp(e,t){let n=this.run.enemies,r=this.run.coop;r&&n.flags[e]?r.hitProxy(e,t):n.hp[e]-=t}',
   '};',
@@ -78,6 +79,18 @@ test('hurt number: broadcasts damage number on authoritative takeHp', () => {
   const { source } = applyCoopPatches(FIXTURE);
   const hurtLine = source.split('\n').find((l) => l.includes('__pbCoop.damageNumber'));
   assert.match(hurtLine, /n\.hp\[e\]-=t,globalThis\.__pbCoop&&__pbCoop\.damageNumber&&__pbCoop\.damageNumber\(this\.run,n\.x\[e\],n\.y\[e\],n\.z\[e\],t\)\}/);
+});
+
+test('the host start gate accepts the relay transport', () => {
+  const { source } = applyCoopPatches(FIXTURE);
+  assert.match(source, /disabled:\(!!te&&!\(globalThis\.__pbCoop&&__pbCoop\.relayReady&&__pbCoop\.relayReady\(\)\)\)\|\|a/);
+});
+
+test('optional patches are skipped on builds without the anchor', () => {
+  const withoutGate = FIXTURE.replace('disabled:!!te||a,', 'disabled:onlyAfterMesh,');
+  const res = applyCoopPatches(withoutGate);
+  assert.ok(res.skipped.includes('L10-start-gate'), 'gate patch skipped when its anchor is absent');
+  assert.ok(res.applied.length >= 1);
 });
 
 test('re-applying is a no-op', () => {

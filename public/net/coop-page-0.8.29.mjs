@@ -66,6 +66,29 @@ function startRelay(coop) {
   return relay;
 }
 
+/**
+ * Lobby readiness: upstream disables Start until the WebRTC mesh is up, which
+ * never happens on networks that block direct connections. Our relay works over
+ * plain HTTP, so a successful room poll is enough to say the party is reachable.
+ */
+function watchRoom() {
+  if (watchdog === 'room') return;
+  watchdog = 'room';
+  setInterval(async () => {
+    // the token appears only after the guest login, so read it per tick
+    const token = sessionToken();
+    const m = document.body?.innerText?.match(/Room\s+([A-Z0-9]{4})\b/);
+    const bridge = globalThis.__pbCoop;
+    if (!token || !m || !bridge || typeof bridge.setRoomReady !== 'function') return;
+    try {
+      const r = await fetch(`/api/coop/rooms/${m[1]}?after=0`, { headers: { authorization: 'Bearer ' + token } });
+      bridge.setRoomReady(r.ok);
+    } catch {
+      bridge.setRoomReady(false);
+    }
+  }, 1500);
+}
+
 function tryBoot() {
   if (booted) return;
   const st = globalThis.__pbCoopBoot;
@@ -113,6 +136,7 @@ export function install() {
 
   if (!globalThis.__pbCoop) installBridge();
   tryBoot();
+  watchRoom();
 
   if (!booted && typeof window !== 'undefined') {
     let attempts = 0;

@@ -202,3 +202,21 @@ After deploying to Vercel, verify full multiplayer connectivity across two separ
 +        globalThis.__pbUseLocal = isLocalHost && (qs.has('local') || qs.get('coop') === 'local');
        }
 ```
+
+## Rate limits and "images could not load"
+
+Vercel's edge firewall answers with **403 + `X-Vercel-Mitigated: deny`** when one
+IP makes a large burst of requests. A single page reload fetches hundreds of
+assets, so a reload loop (or a script that audits thousands of files at once) can
+get the whole deployment denied for that IP — the page, the chunks, the images
+and `/api` alike. It looks like missing art; it is a temporary block that clears
+on its own.
+
+Rules of thumb:
+
+- Never audit or crawl the deployment with high concurrency; use
+  `node tools/audit-assets.mjs <baseUrl> --concurrency 2 --delay 60`.
+- If you see the 403, check the response header before touching the build:
+  `curl -sI <url> | grep -i x-vercel-mitigated`.
+- Long-term protection lives in the Vercel project's Firewall settings (raise the
+  rate limit or exempt `/assets/*`); nothing in this repo can override it.

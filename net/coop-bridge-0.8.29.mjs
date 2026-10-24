@@ -57,6 +57,10 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
   // One indirection for every outbound message so the transport can be swapped
   // at runtime (mesh -> room-signal relay) without rebuilding the session.
   const transportHolder = { send: null };
+  /** true once the bridge is running on the room-signal relay instead of the mesh */
+  let relayActive = false;
+  /** true when the room service itself answers (lobby-level connectivity) */
+  let roomReady = false;
   const sendFn = (ev, to) => {
     if (transportHolder.send) transportHolder.send(ev, to);
   };
@@ -216,9 +220,29 @@ export function installBridge({ target = globalThis, onWaiting = null } = {}) {
       ]);
     },
 
+    /**
+     * True when the session is talking over the relay because the WebRTC mesh
+     * never opened. Upstream's Start button requires a connected mesh, so the
+     * patched gate consults this to stay usable on restrictive networks.
+     */
+    relayReady() {
+      return relayActive || roomReady;
+    },
+
+    /**
+     * Mark the room service as reachable. Called from the page while the player
+     * is still in the lobby: if the room API answers, the relay can carry the
+     * session even when the WebRTC mesh cannot open.
+     */
+    setRoomReady(value) {
+      roomReady = !!value;
+      return api;
+    },
+
     /** Swap the outbound transport (mesh -> room-signal relay). */
     useTransport(fn) {
       if (typeof fn !== 'function') return api;
+      relayActive = true;
       transportHolder.send = fn;
       barrier?.setSend?.(sendFn);
       pickups?.setSend?.(sendFn);

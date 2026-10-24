@@ -52,7 +52,7 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | C5a | Party-scoped run seed | ✅ **implemented**: `/runs` with `party` returns the party's single seed and the room announces the same one at start. Upstream `ctl` carries no seed and room object has none; without party seed, each player generated a different map. One shared seed = identical terrain/decoration map (`new Tl(seed ^ 11259375)`). |
 | C6 | Tooling re-point: `tools/build-target.mjs` with `PB_BUILD/PB_VERSION/PB_ENTRY/PB_GAME/PB_INDEX` overrides + `LEGACY` | ✅ **implemented**: `tools/pull.mjs`, `tools/probe.mjs`, `tools/mirror.mjs`, `tools/prepatch.mjs`, `tools/patch-index-local.mjs` updated to import resolved build target; dry-run default with `--write` support; verified by `tools/build-target.test.mjs` (7 tests). `node tools/verify-all.mjs` (npm `verify`) is the single verification entry point; `npm run test:api` runs the HTTP-level co-op scenario (`tools/test-coop-0.8.29.mjs`, 10 steps). |
 | C7 | `.coop-verify/coop-drive.mjs`, `tools/test-coop-e2e.mjs` | ⬜ pending: 0.8.27 replaced the picker with League screen + Team + Wardrobe. Playwright MCP is unmounted in this environment; runtime proof must run where a browser is available. `tools/check-default-page.mjs` and `tools/test-coop-0.8.29.mjs` cover everything that can be proven without one. |
-| C8 | Two-tab runtime proof | ✅ **validated on 0.8.34** — `npm run test:e2e` passes **17/17** against two real browsers: same build, room create → invite → join, identical party seed, host/guest roles, relay fallback engaged (mesh never opens in this sandbox), and the party barrier round-trip (announce → guest waiting list → guest pick → host waiting 1 → host pick → 0) |
+| C8 | Two-tab runtime proof | ✅ **validated on 0.8.34** — `npm run test:e2e` passes **17/17**; the ready→Start path was validated separately: with the mesh blocked, the room-level readiness signal plus patch `L10` enable Start and both clients enter the same run |
 
 ## D. Free with the swap (no work, no patch)
 
@@ -85,6 +85,8 @@ Legend: ✅ done and verified · ⬜ pending · 🔒 blocked on a decision
 | F3 | Old co-op UI (`public/net/coop-ui.mjs` + its index bootstrap) | delete most of it, keep the fetch/lobby helpers only if needed (standing recommendation under F1=A) | under F1=A upstream owns lobby/picker/chat/invites; replaced by upstream's lobby |
 
 ## G. Risks
+
+- Upstream's Start button requires *mutual mesh connectivity* (0.8.32+), which never becomes true when direct connections are blocked. Patch `L10-start-gate` lets it accept the room-relay readiness signal; without it a fully ready party can never start on restrictive networks.
 
 - 0.8.34 asks the server for ICE servers (`GET /coop/ice`) and for the room's ladder standing (`GET /coop/rooms/:code/standing`); both are served now (STUN-only by default, `COOP_ICE_SERVERS` adds TURN). A malformed ICE url makes the client throw when constructing a peer connection — the validation run caught exactly that.
 
