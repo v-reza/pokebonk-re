@@ -17,6 +17,7 @@
 //
 // Shared patch tables and assertions are imported from ./bundle-patches.mjs
 // and ./bundle-patches-0.8.29.mjs.
+import crypto from 'node:crypto';
 import { cp, readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -219,8 +220,31 @@ export async function main(argv = process.argv.slice(2)) {
   const beforeLen = Buffer.byteLength(src, 'utf8');
   const afterLen = Buffer.byteLength(patched, 'utf8');
 
-  await writeFile(outBundle, patched);
-  touched.push(outBundle);
+  // Upstream's filename is the hash of the UNPATCHED bytes. Serving different
+  // bytes from the same URL makes every cache (browser, CDN) hand out the old
+  // bundle for up to the asset TTL, which shows up as "No connection to the
+  // server". Publish the patched bytes under their own hash and repoint the
+  // entry chunk + index at it.
+  const contentHash = crypto.createHash('sha256').update(patched).digest('hex').slice(0, 8);
+  const patchedName = gameFile.replace(/\.js$/, `-pb${contentHash}.js`);
+  const outPatched = path.join(path.dirname(outBundle), patchedName);
+  await writeFile(outPatched, patched);
+  touched.push(outPatched);
+
+  const repoint = (text) => (patchedName === gameFile ? text : text.split(gameFile).join(patchedName));
+  const entryOut = path.join(OUT, 'assets', entryFile);
+  if (existsSync(entryOut)) {
+    const entrySrc = await readFile(entryOut, 'utf8');
+    const entryNext = repoint(entrySrc);
+    if (entryNext !== entrySrc) { await writeFile(entryOut, entryNext); touched.push(entryOut); }
+  }
+  if (existsSync(outIndex)) {
+    const html = await readFile(outIndex, 'utf8');
+    const next = repoint(html);
+    if (next !== html) { await writeFile(outIndex, next); touched.push(outIndex); }
+  }
+  // never leave the unpatched bytes reachable under upstream's own name
+  if (patchedName !== gameFile && existsSync(outBundle)) await rm(outBundle, { force: true });
   if (!patched.includes('__pbCoop')) {
     console.error('[prepatch] FATAL: patched bundle does not contain __pbCoop');
     process.exit(1);

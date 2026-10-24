@@ -24,8 +24,14 @@ test('prepatch ships a patched client with every net module', async () => {
   try {
     await prepatch([out, '--write']);
 
-    const bundlePath = path.join(out, 'assets', GAME);
-    assert.ok(existsSync(bundlePath), `game chunk missing: ${GAME}`);
+    // the patched chunk must be published under its own content hash, because
+    // upstream's name describes the ORIGINAL bytes and caches would keep serving
+    // the stale copy from that URL
+    const assets = readdirSync(path.join(out, 'assets'));
+    const patchedName = assets.find((f) => f.startsWith(GAME.replace(/\.js$/, '-pb')) && f.endsWith('.js'));
+    assert.ok(patchedName, 'patched chunk must be published under a -pb<hash> name');
+    const bundlePath = path.join(out, 'assets', patchedName);
+    assert.ok(existsSync(bundlePath), `game chunk missing: ${patchedName}`);
     const bundle = readFileSync(bundlePath, 'utf8');
 
     assert.ok(bundle.includes('__pbCoop'), 'co-op hooks must be baked into the deployed chunk');
@@ -41,6 +47,11 @@ test('prepatch ships a patched client with every net module', async () => {
     const html = readFileSync(path.join(out, 'index.html'), 'utf8');
     assert.ok(html.includes(ENTRY), `index must load the ${ENTRY} entry`);
     assert.ok(html.includes('coop-page-0.8.29.mjs'), 'index must load the co-op bootstrap');
+    assert.ok(!html.includes(GAME), 'index must not point at the unpatched chunk name');
+
+    const shippedEntry = readFileSync(path.join(out, 'assets', ENTRY), 'utf8');
+    assert.ok(shippedEntry.includes(patchedName), 'entry chunk must import the patched chunk');
+    assert.ok(!shippedEntry.includes(GAME), 'entry chunk must not import the unpatched chunk name');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
